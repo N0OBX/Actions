@@ -1,0 +1,48 @@
+name: Build
+
+on:
+  workflow_dispatch:
+
+env:
+  REPO_URL: https://github.com/N0OBX/25120IM.git
+  CONFIG_FILE: CONFIG/FULL.config
+  TZ: Asia/Kuala_Lumpur
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y $(curl -fsSL https://raw.githubusercontent.com/LeeHe-gif/depend_ubuntu2204_openwrt/main/depend_ubuntu2204_openwrt)
+          sudo timedatectl set-timezone "$TZ"
+
+      - name: Clone source
+        run: |
+          git clone --depth 1 $REPO_URL 25120IM
+
+      - name: Prepare feeds
+        run: |
+          cd 25120IM
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Load config and build
+        run: |
+          cp $CONFIG_FILE 25120IM/.config
+          cd 25120IM
+          make defconfig && \
+          make download -j1 V=s && \
+          make tools/install -j1 V=s && \
+          make toolchain/install -j1 V=s && \
+          make -j$(nproc) || make -j1 V=s
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v3
+        with:
+          name: 25120IM-bin
+          path: 25120IM/bin/**
