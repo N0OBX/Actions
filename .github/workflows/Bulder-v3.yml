@@ -2,10 +2,21 @@ name: Build v3
 
 on:
   workflow_dispatch:
+    inputs:
+      config:
+        description: "Select config file"
+        required: true
+        default: FULL
+        type: choice
+        options:
+          - AW1K
+          - 5866T
+          - FULL-AW1K
+          - FULL-5866T
 
 env:
   REPO_URL: https://github.com/N0OBX/25120IM.git
-  CONFIG_FILE: CONFIG/FULL.config
+  CONFIG_FILE: CONFIG/${{ github.event.inputs.config }}.config
   TZ: Asia/Kuala_Lumpur
 
 jobs:
@@ -57,8 +68,8 @@ jobs:
       - name: Make tools and toolchain
         run: |
           cd 25120IMX3
-          make tools/install -j1 V=s
-          make toolchain/install -j1 V=s
+          make tools/install -j$(nproc)
+          make toolchain/install -j$(nproc)
 
       - name: Starting build
         run: |
