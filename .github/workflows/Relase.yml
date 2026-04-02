@@ -13,6 +13,14 @@ on:
           - 5866T
           - FULL-AW1K
           - FULL-5866T
+      upload_release:
+        description: "Upload release to target repo?"
+        required: true
+        default: "no"
+        type: choice
+        options:
+          - "yes"
+          - "no"
 
 permissions:
   contents: write
@@ -22,9 +30,7 @@ env:
   SOURCE_DIR: 25120IMX3
   CONFIG_FILE: CONFIG/${{ github.event.inputs.config }}.config
   TZ: Asia/Kuala_Lumpur
-
-  # repo that will RECEIVE the release
-  TARGET_REPO: yourname/your-other-repo
+  TARGET_REPO: dotywrt/DOTYWRT.git
 
 jobs:
   build:
@@ -62,41 +68,6 @@ jobs:
         run: |
           cp "$CONFIG_FILE" "$SOURCE_DIR/.config"
 
-      - name: Add custom defaults
-        run: |
-          mkdir -p "$SOURCE_DIR/files/etc/uci-defaults"
-          cat > "$SOURCE_DIR/files/etc/uci-defaults/99-aw1000-defaults" <<'EOF'
-          #!/bin/sh
-          uci -q set system.@system[0].hostname='AW1000'
-
-          for dev in $(uci show wireless 2>/dev/null | sed -n "s/^wireless\.\([^=]*\)=wifi-device$/\1/p"); do
-            uci -q set wireless."$dev".disabled='0'
-          done
-
-          idx=0
-          for iface in $(uci show wireless 2>/dev/null | sed -n "s/^wireless\.\([^=]*\)=wifi-iface$/\1/p"); do
-            idx=$((idx+1))
-            if [ "$idx" -eq 1 ]; then
-              SSID='DOTYWRT 2G'
-            else
-              SSID='DOTYWRT 5G'
-            fi
-
-            uci -q set wireless."$iface".mode='ap'
-            uci -q set wireless."$iface".network='lan'
-            uci -q set wireless."$iface".ssid="$SSID"
-            uci -q set wireless."$iface".encryption='psk2'
-            uci -q set wireless."$iface".key='dotycat.com'
-            uci -q set wireless."$iface".disabled='0'
-          done
-
-          uci -q commit system
-          uci -q commit wireless
-          passwd -d root >/dev/null 2>&1 || true
-          exit 0
-          EOF
-          chmod +x "$SOURCE_DIR/files/etc/uci-defaults/99-aw1000-defaults"
-
       - name: Defconfig
         run: |
           cd "$SOURCE_DIR"
@@ -124,7 +95,15 @@ jobs:
           BUILD_TAG="AW1000-$(date +'%Y%m%d-%H%M')-${{ github.event.inputs.config }}"
           echo "tag=$BUILD_TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare release files
+      - name: Upload artifact (all bin)
+        uses: actions/upload-artifact@v4
+        with:
+          name: AW1000-${{ github.event.inputs.config }}-${{ steps.tag.outputs.tag }}
+          path: ${{ env.SOURCE_DIR }}/bin/**
+          retention-days: 7
+
+      - name: Prepare release files (ipq807x)
+        if: ${{ github.event.inputs.upload_release == 'yes' }}
         run: |
           mkdir -p release_files
           find "$SOURCE_DIR/bin/targets/qualcommax/ipq807x" -type f \
@@ -133,14 +112,8 @@ jobs:
             ! -name "*.json" \
             -exec cp -f {} release_files/ \;
 
-      - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: AW1000-${{ github.event.inputs.config }}-${{ steps.tag.outputs.tag }}
-          path: release_files/**
-          retention-days: 7
-
       - name: Create release in target repo
+        if: ${{ github.event.inputs.upload_release == 'yes' }}
         run: |
           gh release create "${{ steps.tag.outputs.tag }}" release_files/* \
             --repo "${{ env.TARGET_REPO }}" \
