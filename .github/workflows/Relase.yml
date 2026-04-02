@@ -30,7 +30,7 @@ env:
   SOURCE_DIR: 25120IMX3
   CONFIG_FILE: CONFIG/${{ github.event.inputs.config }}.config
   TZ: Asia/Kuala_Lumpur
-  TARGET_REPO: dotywrt/DOTYWRT.git
+  TARGET_REPO: dotywrt/DOTYWRT
 
 jobs:
   build:
