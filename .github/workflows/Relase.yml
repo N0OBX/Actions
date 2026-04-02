@@ -1,0 +1,150 @@
+name: Build And Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      config:
+        description: "Select config file"
+        required: true
+        default: FULL-AW1K
+        type: choice
+        options:
+          - AW1K
+          - 5866T
+          - FULL-AW1K
+          - FULL-5866T
+
+permissions:
+  contents: write
+
+env:
+  REPO_URL: https://github.com/N0OBX/25120IM.git
+  SOURCE_DIR: 25120IMX3
+  CONFIG_FILE: CONFIG/${{ github.event.inputs.config }}.config
+  TZ: Asia/Kuala_Lumpur
+
+  # repo that will RECEIVE the release
+  TARGET_REPO: yourname/your-other-repo
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout workflow repo
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt update -y
+          sudo apt full-upgrade -y
+          sudo apt install -y \
+            ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib \
+            g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev \
+            libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev \
+            libreadline-dev libssl-dev libtool libyaml-dev libz-dev lld llvm lrzsz mkisofs msmtp nano \
+            ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils \
+            python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs \
+            upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd gh
+
+      - name: Clone source
+        run: |
+          git clone --depth 1 "$REPO_URL" "$SOURCE_DIR"
+
+      - name: Prepare feeds
+        run: |
+          cd "$SOURCE_DIR"
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Load config
+        run: |
+          cp "$CONFIG_FILE" "$SOURCE_DIR/.config"
+
+      - name: Add custom defaults
+        run: |
+          mkdir -p "$SOURCE_DIR/files/etc/uci-defaults"
+          cat > "$SOURCE_DIR/files/etc/uci-defaults/99-aw1000-defaults" <<'EOF'
+          #!/bin/sh
+          uci -q set system.@system[0].hostname='AW1000'
+
+          for dev in $(uci show wireless 2>/dev/null | sed -n "s/^wireless\.\([^=]*\)=wifi-device$/\1/p"); do
+            uci -q set wireless."$dev".disabled='0'
+          done
+
+          idx=0
+          for iface in $(uci show wireless 2>/dev/null | sed -n "s/^wireless\.\([^=]*\)=wifi-iface$/\1/p"); do
+            idx=$((idx+1))
+            if [ "$idx" -eq 1 ]; then
+              SSID='DOTYWRT 2G'
+            else
+              SSID='DOTYWRT 5G'
+            fi
+
+            uci -q set wireless."$iface".mode='ap'
+            uci -q set wireless."$iface".network='lan'
+            uci -q set wireless."$iface".ssid="$SSID"
+            uci -q set wireless."$iface".encryption='psk2'
+            uci -q set wireless."$iface".key='dotycat.com'
+            uci -q set wireless."$iface".disabled='0'
+          done
+
+          uci -q commit system
+          uci -q commit wireless
+          passwd -d root >/dev/null 2>&1 || true
+          exit 0
+          EOF
+          chmod +x "$SOURCE_DIR/files/etc/uci-defaults/99-aw1000-defaults"
+
+      - name: Defconfig
+        run: |
+          cd "$SOURCE_DIR"
+          make defconfig
+
+      - name: Make download
+        run: |
+          cd "$SOURCE_DIR"
+          make download -j"$(nproc)"
+
+      - name: Make tools and toolchain
+        run: |
+          cd "$SOURCE_DIR"
+          make tools/install -j"$(nproc)"
+          make toolchain/install -j"$(nproc)"
+
+      - name: Start build
+        run: |
+          cd "$SOURCE_DIR"
+          make -j"$(nproc)" || make -j1 V=s
+
+      - name: Generate release tag
+        id: tag
+        run: |
+          BUILD_TAG="AW1000-$(date +'%Y%m%d-%H%M')-${{ github.event.inputs.config }}"
+          echo "tag=$BUILD_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release_files
+          find "$SOURCE_DIR/bin/targets/qualcommax/ipq807x" -type f \
+            ! -name "*.buildinfo" \
+            ! -name "*.manifest" \
+            ! -name "*.json" \
+            -exec cp -f {} release_files/ \;
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AW1000-${{ github.event.inputs.config }}-${{ steps.tag.outputs.tag }}
+          path: release_files/**
+          retention-days: 7
+
+      - name: Create release in target repo
+        run: |
+          gh release create "${{ steps.tag.outputs.tag }}" release_files/* \
+            --repo "${{ env.TARGET_REPO }}" \
+            --title "AW1000 Firmware ${{ steps.tag.outputs.tag }}" \
+            --notes "Config: ${{ github.event.inputs.config }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}
