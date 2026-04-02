@@ -1,3 +1,50 @@
+15s
+Run sudo apt update
+WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
+Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+Hit:2 http://azure.archive.ubuntu.com/ubuntu noble InRelease
+Hit:6 https://packages.microsoft.com/repos/azure-cli noble InRelease
+Get:7 https://packages.microsoft.com/ubuntu/24.04/prod noble InRelease [3600 B]
+Get:3 http://azure.archive.ubuntu.com/ubuntu noble-updates InRelease [126 kB]
+Get:4 http://azure.archive.ubuntu.com/ubuntu noble-backports InRelease [126 kB]
+Get:5 http://azure.archive.ubuntu.com/ubuntu noble-security InRelease [126 kB]
+Get:8 https://packages.microsoft.com/ubuntu/24.04/prod noble/main amd64 Packages [112 kB]
+Get:9 https://packages.microsoft.com/ubuntu/24.04/prod noble/main arm64 Packages [88.2 kB]
+Get:10 https://packages.microsoft.com/ubuntu/24.04/prod noble/main armhf Packages [11.4 kB]
+Get:11 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages [1873 kB]
+Get:12 http://azure.archive.ubuntu.com/ubuntu noble-updates/main Translation-en [342 kB]
+Get:13 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Components [177 kB]
+Get:14 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 c-n-f Metadata [16.9 kB]
+Get:15 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages [1665 kB]
+Get:16 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe Translation-en [323 kB]
+Get:17 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Components [386 kB]
+Get:18 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 c-n-f Metadata [34.2 kB]
+Get:19 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Packages [2894 kB]
+Get:20 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted Translation-en [671 kB]
+Get:21 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Components [212 B]
+Get:22 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 Components [940 B]
+Get:23 http://azure.archive.ubuntu.com/ubuntu noble-backports/main amd64 Components [7352 B]
+Get:24 http://azure.archive.ubuntu.com/ubuntu noble-backports/universe amd64 Components [13.2 kB]
+Get:25 http://azure.archive.ubuntu.com/ubuntu noble-backports/restricted amd64 Components [212 B]
+Get:26 http://azure.archive.ubuntu.com/ubuntu noble-backports/multiverse amd64 Components [212 B]
+Get:27 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Packages [1551 kB]
+Get:28 http://azure.archive.ubuntu.com/ubuntu noble-security/main Translation-en [250 kB]
+Get:29 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Components [21.5 kB]
+Get:30 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 c-n-f Metadata [10.7 kB]
+Get:31 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Packages [1167 kB]
+Get:32 http://azure.archive.ubuntu.com/ubuntu noble-security/universe Translation-en [225 kB]
+Get:33 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Components [74.2 kB]
+Get:34 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 c-n-f Metadata [22.8 kB]
+Get:35 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted amd64 Components [212 B]
+Get:36 http://azure.archive.ubuntu.com/ubuntu noble-security/multiverse amd64 Components [212 B]
+Fetched 12.3 MB in 2s (7524 kB/s)
+Reading package lists...
+Building dependency tree...
+Reading state information...
+81 packages can be upgraded. Run 'apt list --upgradable' to see them.
+E: Command line option 'e' [from -e] is not understood in combination with the other options.
+Error: Process completed with exit code 100.
+
 name: Build v2
 
 on:
@@ -18,46 +65,47 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y $(curl -fsSL https://raw.githubusercontent.com/N0OBX/Actions/refs/heads/main/init_build_environment.sh)
+          curl -fsSL https://raw.githubusercontent.com/N0OBX/Actions/refs/heads/main/init_build_environment.sh -o init.sh
+          sudo bash init.sh
           sudo timedatectl set-timezone "$TZ"
 
       - name: Clone source
         run: |
-          git clone --depth 1 $REPO_URL 25120IM
+          git clone --depth 1 $REPO_URL 25120IMX2
 
       - name: Prepare feeds
         run: |
-          cd 25120IM
+          cd 25120IMX2
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
       - name: Load config
         run: |
-          cp $CONFIG_FILE 25120IM/.config
+          cp $CONFIG_FILE 25120IMX2/.config
 
       - name: Defconfig
         run: |
-          cd 25120IM
+          cd 25120IMX2
           make defconfig
 
       - name: Make download
         run: |
-          cd 25120IM
+          cd 25120IMX2
           make download -j1 V=s
 
       - name: Make tools and toolchain
         run: |
-          cd 25120IM
+          cd 25120IMX2
           make tools/install -j1 V=s
           make toolchain/install -j1 V=s
 
       - name: Starting build
         run: |
-          cd 25120IM
+          cd 25120IMX2
           make -j$(nproc) || make -j1 V=s
 
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: 25120IM-bin
-          path: 25120IM/bin/**
+          name: 25120IMX2-bin
+          path: 25120IMX2/bin/**
