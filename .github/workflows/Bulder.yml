@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
@@ -35,14 +35,14 @@ jobs:
         run: |
           cp $CONFIG_FILE 25120IM/.config
           cd 25120IM
-          make defconfig && \
-          make download -j1 V=s && \
-          make tools/install -j1 V=s && \
-          make toolchain/install -j1 V=s && \
+          make defconfig
+          make download -j1 V=s
+          make tools/install -j1 V=s
+          make toolchain/install -j1 V=s
           make -j$(nproc) || make -j1 V=s
 
       - name: Upload firmware
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: 25120IM-bin
           path: 25120IM/bin/**
