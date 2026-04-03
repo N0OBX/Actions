@@ -1,0 +1,148 @@
+name: Build And Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      config:
+        description: "Select config file"
+        required: true
+        default: FULL-AW1K
+        type: choice
+        options:
+          - AW1K
+          - 5866T
+          - FULL-AW1K
+          - FULL-5866T
+      upload_release:
+        description: "Upload release to target repo?"
+        required: true
+        default: "no"
+        type: choice
+        options:
+          - "yes"
+          - "no"
+
+permissions:
+  contents: write
+
+env:
+  REPO_URL: https://github.com/N0OBX/25120IM.git
+  SOURCE_DIR: 25120IMX3
+  CONFIG_FILE: CONFIG/${{ github.event.inputs.config }}.config
+  TZ: Asia/Kuala_Lumpur
+  TARGET_REPO: dotywrt/DOTYWRT
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout workflow repo
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt update -y
+          sudo apt install -y \
+            ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib \
+            g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev \
+            libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev \
+            libreadline-dev libssl-dev libtool libyaml-dev libz-dev lld llvm lrzsz mkisofs msmtp nano \
+            ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils \
+            python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs \
+            upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd gh
+
+      - name: Clone source
+        run: |
+          git clone --depth 1 "$REPO_URL" "$SOURCE_DIR"
+
+      - name: Prepare ccache
+        run: |
+          mkdir -p "$HOME/.ccache"
+          {
+            echo "max_size = 2.0G"
+            echo "compression = true"
+            echo "compiler_check = content"
+          } > "$HOME/.ccache/ccache.conf"
+
+      - name: Cache OpenWrt files
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.ccache
+            ${{ env.SOURCE_DIR }}/dl
+            ${{ env.SOURCE_DIR }}/staging_dir
+          key: ${{ runner.os }}-openwrt-${{ github.event.inputs.config }}-${{ hashFiles('CONFIG/*.config') }}
+          restore-keys: |
+            ${{ runner.os }}-openwrt-${{ github.event.inputs.config }}-
+            ${{ runner.os }}-openwrt-
+
+      - name: Prepare feeds
+        run: |
+          cd "$SOURCE_DIR"
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Load config
+        run: |
+          cp "$CONFIG_FILE" "$SOURCE_DIR/.config"
+
+      - name: Defconfig
+        run: |
+          cd "$SOURCE_DIR"
+          make defconfig
+
+      - name: Download sources
+        run: |
+          cd "$SOURCE_DIR"
+          make download -j"$(nproc)"
+
+      - name: Build firmware
+        run: |
+          cd "$SOURCE_DIR"
+          export CCACHE_DIR="$HOME/.ccache"
+          export CCACHE_COMPRESS=1
+          export CCACHE_MAXSIZE=2G
+          export USE_CCACHE=1
+          make -j"$(nproc)" || make -j1 V=s
+
+      - name: Show ccache stats
+        if: always()
+        run: |
+          ccache -s || true
+
+      - name: Generate release tag
+        id: tag
+        run: |
+          BUILD_TAG="AW1000-$(date +'%Y%m%d-%H%M')-${{ github.event.inputs.config }}"
+          echo "tag=$BUILD_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact (all bin)
+        uses: actions/upload-artifact@v4
+        with:
+          name: AW1000-${{ github.event.inputs.config }}-${{ steps.tag.outputs.tag }}
+          path: ${{ env.SOURCE_DIR }}/bin/**
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Prepare release files (ipq807x)
+        if: ${{ github.event.inputs.upload_release == 'yes' }}
+        run: |
+          mkdir -p release_files
+          find "$SOURCE_DIR/bin/targets/qualcommax/ipq807x" -type f \
+            ! -name "*.buildinfo" \
+            ! -name "*.manifest" \
+            ! -name "*.json" \
+            -exec cp -f {} release_files/ \;
+          ls -lah release_files
+
+      - name: Create release in target repo
+        if: ${{ github.event.inputs.upload_release == 'yes' }}
+        run: |
+          gh release create "${{ steps.tag.outputs.tag }}" release_files/* \
+            --repo "${{ env.TARGET_REPO }}" \
+            --title "AW1000 Firmware ${{ steps.tag.outputs.tag }}" \
+            --notes "Config: ${{ github.event.inputs.config }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}
