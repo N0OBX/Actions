@@ -31,8 +31,8 @@ permissions:
   contents: write
 
 env:
-  REPO_URL: https://github.com/N0OBX/25120IM.git
-  SOURCE_DIR: 25120IMX3
+  REPO_URL: https://github.com/N0OBX/TU02.git
+  SOURCE_DIR: DOTYWRT
   CONFIG_FILE: CONFIG/${{ github.event.inputs.config }}.config
   TZ: Asia/Kuala_Lumpur
   TARGET_REPO: dotywrt/DOTYWRT
