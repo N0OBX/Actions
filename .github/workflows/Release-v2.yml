@@ -13,6 +13,11 @@ on:
           - 5866T
           - FULL-AW1K
           - FULL-5866T
+      version:
+        description: "Version for release notes"
+        required: true
+        default: "v1.0.0"
+        type: string
       upload_release:
         description: "Upload release to target repo?"
         required: true
@@ -130,11 +135,31 @@ jobs:
         if: ${{ github.event.inputs.upload_release == 'yes' }}
         run: |
           mkdir -p release_files
-          find "$SOURCE_DIR/bin/targets/qualcommax/ipq807x" -type f \
-            ! -name "*.buildinfo" \
-            ! -name "*.manifest" \
-            ! -name "*.json" \
-            -exec cp -f {} release_files/ \;
+          TARGET_DIR="$SOURCE_DIR/bin/targets/qualcommax/ipq807x"
+
+          FILES=(
+            "config.buildinfo"
+            "feeds.buildinfo"
+            "immortalwrt-qualcommax-ipq807x-arcadyan_aw1000-initramfs-uImage.itb"
+            "immortalwrt-qualcommax-ipq807x-arcadyan_aw1000-squashfs-factory.ubi"
+            "immortalwrt-qualcommax-ipq807x-arcadyan_aw1000-squashfs-sysupgrade.bin"
+            "immortalwrt-qualcommax-ipq807x-arcadyan_aw1000.manifest"
+            "kernel-debug.tar.zst"
+            "profiles.json"
+            "sha256sums"
+            "version.buildinfo"
+          )
+
+          for file in "${FILES[@]}"; do
+            if [ -f "$TARGET_DIR/$file" ]; then
+              cp -f "$TARGET_DIR/$file" release_files/
+            else
+              echo "❌ Missing file: $file"
+              exit 1
+            fi
+          done
+
+          echo "✅ Release files ready:"
           ls -lah release_files
 
       - name: Create release in target repo
@@ -143,6 +168,21 @@ jobs:
           gh release create "${{ steps.tag.outputs.tag }}" release_files/* \
             --repo "${{ env.TARGET_REPO }}" \
             --title "AW1000 Firmware ${{ steps.tag.outputs.tag }}" \
-            --notes "Config: ${{ github.event.inputs.config }}"
+            --notes "$(cat <<EOF
+Version: ${{ github.event.inputs.version }}
+Config: ${{ github.event.inputs.config }}
+Tag: ${{ steps.tag.outputs.tag }}
+Build Date: $(date +"%Y-%m-%d %H:%M %Z")
+
+WiFi:
+- SSID: DOTYWRT 2G / DOTYWRT 5G
+- Password: dotycat.com
+
+Login:
+- Username: root
+- Password: (no password)
+
+EOF
+          )"
         env:
           GITHUB_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}
