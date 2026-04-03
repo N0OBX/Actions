@@ -159,8 +159,27 @@ jobs:
             fi
           done
 
-          echo "Release files ready:"
           ls -lah release_files
+
+      - name: Generate release notes
+        if: ${{ github.event.inputs.upload_release == 'yes' }}
+        run: |
+          cat > release_notes.md << EOF
+          Version: ${{ github.event.inputs.version }}
+          Config: ${{ github.event.inputs.config }}
+          Tag: ${{ steps.tag.outputs.tag }}
+          Build Date: $(date +"%Y-%m-%d %H:%M %Z")
+
+          WiFi:
+          - SSID: DOTYWRT 2G / DOTYWRT 5G
+          - Password: dotycat.com
+
+          Login:
+          - Username: root
+          - Password: no password
+          EOF
+
+          cat release_notes.md
 
       - name: Create release in target repo
         if: ${{ github.event.inputs.upload_release == 'yes' }}
@@ -168,21 +187,6 @@ jobs:
           gh release create "${{ steps.tag.outputs.tag }}" release_files/* \
             --repo "${{ env.TARGET_REPO }}" \
             --title "AW1000 Firmware ${{ steps.tag.outputs.tag }}" \
-            --notes "$(cat <<EOF
-Version: ${{ github.event.inputs.version }}
-Config: ${{ github.event.inputs.config }}
-Tag: ${{ steps.tag.outputs.tag }}
-Build Date: $(date +"%Y-%m-%d %H:%M %Z")
-
-WiFi:
-- SSID: DOTYWRT 2G / DOTYWRT 5G
-- Password: dotycat.com
-
-Login:
-- Username: root
-- Password: (no password)
-
-EOF
-          )"
+            --notes-file release_notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}
