@@ -154,12 +154,12 @@ jobs:
             if [ -f "$TARGET_DIR/$file" ]; then
               cp -f "$TARGET_DIR/$file" release_files/
             else
-              echo "❌ Missing file: $file"
+              echo "Missing file: $file"
               exit 1
             fi
           done
 
-          echo "✅ Release files ready:"
+          echo "Release files ready:"
           ls -lah release_files
 
       - name: Create release in target repo
