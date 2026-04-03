@@ -16,7 +16,7 @@ on:
       version:
         description: "Version for release notes"
         required: true
-        default: "v1.0.0"
+        default: "V1.5.0"
         type: string
       upload_release:
         description: "Upload release to target repo?"
@@ -45,6 +45,10 @@ jobs:
       - name: Checkout workflow repo
         uses: actions/checkout@v4
 
+      - name: Setup Git auth (private access)
+        run: |
+          git config --global url."https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
       - name: Install dependencies
         run: |
           sudo apt update -y
@@ -58,7 +62,7 @@ jobs:
             python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs \
             upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd gh
 
-      - name: Clone source
+      - name: Clone source (private access)
         run: |
           git clone --depth 1 "$REPO_URL" "$SOURCE_DIR"
 
@@ -159,8 +163,6 @@ jobs:
             fi
           done
 
-          ls -lah release_files
-
       - name: Generate release notes
         if: ${{ github.event.inputs.upload_release == 'yes' }}
         run: |
@@ -179,14 +181,12 @@ jobs:
           - Password: no password
           EOF
 
-          cat release_notes.md
-
       - name: Create release in target repo
         if: ${{ github.event.inputs.upload_release == 'yes' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}
         run: |
           gh release create "${{ steps.tag.outputs.tag }}" release_files/* \
             --repo "${{ env.TARGET_REPO }}" \
             --title "AW1000 Firmware ${{ steps.tag.outputs.tag }}" \
             --notes-file release_notes.md
-        env:
-          GITHUB_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}
