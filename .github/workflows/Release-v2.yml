@@ -3,6 +3,15 @@ name: Build And Release CC
 on:
   workflow_dispatch:
     inputs:
+      source_repo:
+        description: "Select source repository"
+        required: true
+        default: TU02
+        type: choice
+        options:
+          - TU02
+          - immortalwrt
+
       config:
         description: "Select config file"
         required: true
@@ -13,11 +22,13 @@ on:
           - 5866T
           - FULL-AW1K
           - FULL-5866T
+
       version:
         description: "Version for release notes"
         required: true
         default: "V1.5.0"
         type: string
+
       upload_release:
         description: "Upload release to target repo?"
         required: true
@@ -31,8 +42,8 @@ permissions:
   contents: write
 
 env:
-  REPO_URL: https://github.com/N0OBX/TU02.git
-  SOURCE_DIR: DOTYWRT
+  REPO_URL: ${{ github.event.inputs.source_repo == 'immortalwrt' && 'https://github.com/N0OBX/immortalwrt.git' || 'https://github.com/N0OBX/TU02.git' }}
+  SOURCE_DIR: ${{ github.event.inputs.source_repo == 'immortalwrt' && 'immortalwrt' || 'DOTYWRT' }}
   CONFIG_FILE: CONFIG/${{ github.event.inputs.config }}.config
   TZ: Asia/Kuala_Lumpur
   TARGET_REPO: dotywrt/DOTYWRT
@@ -48,6 +59,12 @@ jobs:
       - name: Setup Git auth (private access)
         run: |
           git config --global url."https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Show selected repo
+        run: |
+          echo "Selected repo: ${{ github.event.inputs.source_repo }}"
+          echo "Using URL: $REPO_URL"
+          echo "Source dir: $SOURCE_DIR"
 
       - name: Install dependencies
         run: |
@@ -82,9 +99,10 @@ jobs:
             ~/.ccache
             ${{ env.SOURCE_DIR }}/dl
             ${{ env.SOURCE_DIR }}/staging_dir
-          key: ${{ runner.os }}-openwrt-${{ github.event.inputs.config }}-${{ hashFiles('CONFIG/*.config') }}
+          key: ${{ runner.os }}-openwrt-${{ github.event.inputs.source_repo }}-${{ github.event.inputs.config }}-${{ hashFiles('CONFIG/*.config') }}
           restore-keys: |
-            ${{ runner.os }}-openwrt-${{ github.event.inputs.config }}-
+            ${{ runner.os }}-openwrt-${{ github.event.inputs.source_repo }}-${{ github.event.inputs.config }}-
+            ${{ runner.os }}-openwrt-${{ github.event.inputs.source_repo }}-
             ${{ runner.os }}-openwrt-
 
       - name: Prepare feeds
@@ -124,13 +142,13 @@ jobs:
       - name: Generate release tag
         id: tag
         run: |
-          BUILD_TAG="AW1000-$(date +'%Y%m%d-%H%M')-${{ github.event.inputs.config }}"
+          BUILD_TAG="AW1000-${{ github.event.inputs.source_repo }}-$(date +'%Y%m%d-%H%M')-${{ github.event.inputs.config }}"
           echo "tag=$BUILD_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifact (all bin)
         uses: actions/upload-artifact@v4
         with:
-          name: AW1000-${{ github.event.inputs.config }}-${{ steps.tag.outputs.tag }}
+          name: AW1000-${{ github.event.inputs.source_repo }}-${{ github.event.inputs.config }}-${{ steps.tag.outputs.tag }}
           path: ${{ env.SOURCE_DIR }}/bin/**
           retention-days: 7
           if-no-files-found: warn
@@ -169,6 +187,7 @@ jobs:
           cat > release_notes.md << EOF
           Version: ${{ github.event.inputs.version }}
           Config: ${{ github.event.inputs.config }}
+          Source Repo: ${{ github.event.inputs.source_repo }}
           Tag: ${{ steps.tag.outputs.tag }}
           Build Date: $(date +"%Y-%m-%d %H:%M %Z")
 
