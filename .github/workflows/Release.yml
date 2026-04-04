@@ -3,6 +3,15 @@ name: Build And Release
 on:
   workflow_dispatch:
     inputs:
+      source_repo:
+        description: "Select source repository"
+        required: true
+        default: 25120IM
+        type: choice
+        options:
+          - 25120IM
+          - immortalwrt
+
       config:
         description: "Select config file"
         required: true
@@ -13,6 +22,7 @@ on:
           - 5866T
           - FULL-AW1K
           - FULL-5866T
+
       upload_release:
         description: "Upload release to target repo?"
         required: true
@@ -26,8 +36,8 @@ permissions:
   contents: write
 
 env:
-  REPO_URL: https://github.com/N0OBX/25120IM.git
-  SOURCE_DIR: 25120IMX3
+  REPO_URL: ${{ github.event.inputs.source_repo == 'immortalwrt' && 'https://github.com/N0OBX/immortalwrt.git' || 'https://github.com/N0OBX/25120IM.git' }}
+  SOURCE_DIR: ${{ github.event.inputs.source_repo == 'immortalwrt' && 'immortalwrt' || '25120IMX3' }}
   CONFIG_FILE: CONFIG/${{ github.event.inputs.config }}.config
   TZ: Asia/Kuala_Lumpur
   TARGET_REPO: dotywrt/DOTYWRT
@@ -92,13 +102,13 @@ jobs:
       - name: Generate release tag
         id: tag
         run: |
-          BUILD_TAG="AW1000-$(date +'%Y%m%d-%H%M')-${{ github.event.inputs.config }}"
+          BUILD_TAG="AW1000-${{ github.event.inputs.source_repo }}-$(date +'%Y%m%d-%H%M')-${{ github.event.inputs.config }}"
           echo "tag=$BUILD_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifact (all bin)
         uses: actions/upload-artifact@v4
         with:
-          name: AW1000-${{ github.event.inputs.config }}-${{ steps.tag.outputs.tag }}
+          name: AW1000-${{ github.event.inputs.source_repo }}-${{ github.event.inputs.config }}-${{ steps.tag.outputs.tag }}
           path: ${{ env.SOURCE_DIR }}/bin/**
           retention-days: 7
 
@@ -118,6 +128,6 @@ jobs:
           gh release create "${{ steps.tag.outputs.tag }}" release_files/* \
             --repo "${{ env.TARGET_REPO }}" \
             --title "AW1000 Firmware ${{ steps.tag.outputs.tag }}" \
-            --notes "Config: ${{ github.event.inputs.config }}"
+            --notes "Config: ${{ github.event.inputs.config }} | Source: ${{ github.event.inputs.source_repo }}"
         env:
           GITHUB_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}
