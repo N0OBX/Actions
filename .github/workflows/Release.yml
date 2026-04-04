@@ -9,7 +9,7 @@ on:
         default: 25120IM
         type: choice
         options:
-          - 25120IM
+          - TU02
           - immortalwrt
 
       config:
