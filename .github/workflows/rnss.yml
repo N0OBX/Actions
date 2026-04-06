@@ -34,6 +34,7 @@ jobs:
         run: |
           if [[ -z $(git status --porcelain) ]]; then
             echo "NO_CHANGES=true" >> $GITHUB_ENV
+          fi
 
       # 5. Prepare empty target repo folder
       - name: Prepare target folder
@@ -52,7 +53,6 @@ jobs:
         run: |
           git diff --name-only > changed.txt
           while read file; do
-            # Only copy files that exist (skip missing)
             if [ -f "$file" ]; then
               mkdir -p "target/$(dirname "$file")"
               cp -f "$file" "target/$file"
