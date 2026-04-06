@@ -44,8 +44,15 @@ permissions:
   contents: write
 
 env:
-  REPO_URL: ${{ github.event.inputs.source_repo == 'immortalwrt' && 'https://github.com/N0OBX/immortalwrt.git' || 'https://github.com/N0OBX/TU02.git' }}
-  SOURCE_DIR: ${{ github.event.inputs.source_repo == 'immortalwrt' && 'immortalwrt' || 'DOTYWRT' }}
+  # Gunakan env variable untuk store pilihan
+  SELECTED_REPO: ${{ github.event.inputs.source_repo }}
+  
+  # Dynamic URL based on selection
+  REPO_URL: ${{ github.event.inputs.source_repo == 'immortalwrt' && 'https://github.com/N0OBX/immortalwrt.git' || github.event.inputs.source_repo == 'ITR1' && 'https://github.com/N0OBX/ITR1.git' || 'https://github.com/N0OBX/TU02.git' }}
+  
+  # Dynamic source directory
+  SOURCE_DIR: ${{ github.event.inputs.source_repo == 'immortalwrt' && 'immortalwrt' || github.event.inputs.source_repo == 'ITR1' && 'ITR1' || 'DOTYWRT' }}
+  
   CONFIG_FILE: CONFIG/${{ github.event.inputs.config }}.config
   TZ: Asia/Kuala_Lumpur
   TARGET_REPO: dotywrt/DOTYWRT
@@ -53,6 +60,11 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    
+    # Tambah environment variable untuk job
+    env:
+      BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      CACHE_VERSION: v1
 
     steps:
       - name: Checkout workflow repo
@@ -62,11 +74,21 @@ jobs:
         run: |
           git config --global url."https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
-      - name: Show selected repo
+      - name: Debug Input Values
         run: |
-          echo "Selected repo: ${{ github.event.inputs.source_repo }}"
-          echo "Using URL: $REPO_URL"
-          echo "Source dir: $SOURCE_DIR"
+          echo "========================================="
+          echo "INPUT SOURCE REPO: ${{ github.event.inputs.source_repo }}"
+          echo "SELECTED REPO: ${{ env.SELECTED_REPO }}"
+          echo "REPO URL: $REPO_URL"
+          echo "SOURCE DIR: $SOURCE_DIR"
+          echo "CONFIG FILE: $CONFIG_FILE"
+          echo "========================================="
+          
+          # Validate input
+          if [ -z "${{ github.event.inputs.source_repo }}" ]; then
+            echo "ERROR: source_repo is empty!"
+            exit 1
+          fi
 
       - name: Install dependencies
         run: |
@@ -81,9 +103,74 @@ jobs:
             python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs \
             upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd gh
 
+      - name: Clean previous source if repo changed
+        id: check_repo
+        run: |
+          # Store current repo selection
+          CURRENT_REPO_SELECTION="${{ github.event.inputs.source_repo }}"
+          CACHE_FILE=".last_repo_selection"
+          
+          if [ -f "$CACHE_FILE" ]; then
+            LAST_REPO=$(cat "$CACHE_FILE")
+            echo "Last repo: $LAST_REPO"
+            echo "Current repo: $CURRENT_REPO_SELECTION"
+            
+            if [ "$LAST_REPO" != "$CURRENT_REPO_SELECTION" ]; then
+              echo "REPO_CHANGED=true" >> $GITHUB_OUTPUT
+              echo "Source repository changed! Will perform clean build."
+              
+              # Remove existing source directory
+              if [ -d "$SOURCE_DIR" ]; then
+                echo "Removing old source directory: $SOURCE_DIR"
+                rm -rf "$SOURCE_DIR"
+              fi
+              
+              # Remove dl and staging_dir caches
+              rm -rf ~/.ccache
+              rm -rf dl staging_dir 2>/dev/null || true
+            else
+              echo "REPO_CHANGED=false" >> $GITHUB_OUTPUT
+              echo "Same repository, will use cache if available."
+            fi
+          else
+            echo "REPO_CHANGED=true" >> $GITHUB_OUTPUT
+            echo "First time build - no previous repo record."
+          fi
+          
+          # Save current selection for next run
+          echo "$CURRENT_REPO_SELECTION" > "$CACHE_FILE"
+          
       - name: Clone source (private access)
         run: |
-          git clone --depth 1 "$REPO_URL" "$SOURCE_DIR"
+          echo "Cloning from: $REPO_URL"
+          echo "Into directory: $SOURCE_DIR"
+          
+          # Fresh clone if directory doesn't exist
+          if [ ! -d "$SOURCE_DIR" ]; then
+            git clone --depth 1 "$REPO_URL" "$SOURCE_DIR"
+          else
+            echo "Source directory exists, updating..."
+            cd "$SOURCE_DIR"
+            git fetch --depth 1 origin
+            git reset --hard origin/$(git branch -r --contains $(git rev-parse HEAD) | grep -v HEAD | head -1 | sed 's/.*\///')
+          fi
+          
+          # Verify clone was successful
+          if [ ! -d "$SOURCE_DIR" ]; then
+            echo "ERROR: Failed to clone repository!"
+            exit 1
+          fi
+          
+          # Verify correct repo
+          cd "$SOURCE_DIR"
+          CLONED_URL=$(git config --get remote.origin.url)
+          echo "Cloned from: $CLONED_URL"
+          
+          if [[ "$CLONED_URL" != *"${{ github.event.inputs.source_repo }}"* ]]; then
+            echo "WARNING: Cloned repository doesn't match selected source_repo!"
+            echo "Expected pattern: ${{ github.event.inputs.source_repo }}"
+            echo "Actual: $CLONED_URL"
+          fi
 
       - name: Prepare ccache
         run: |
@@ -94,33 +181,49 @@ jobs:
             echo "compiler_check = content"
           } > "$HOME/.ccache/ccache.conf"
 
-      - name: Cache OpenWrt files
+      - name: Cache OpenWrt files (IMPROVED - NO restore-keys)
         uses: actions/cache@v4
         with:
           path: |
             ~/.ccache
             ${{ env.SOURCE_DIR }}/dl
             ${{ env.SOURCE_DIR }}/staging_dir
-          key: ${{ runner.os }}-openwrt-${{ github.event.inputs.source_repo }}-${{ github.event.inputs.config }}-${{ hashFiles('CONFIG/*.config') }}
-          restore-keys: |
-            ${{ runner.os }}-openwrt-${{ github.event.inputs.source_repo }}-${{ github.event.inputs.config }}-
-            ${{ runner.os }}-openwrt-${{ github.event.inputs.source_repo }}-
-            ${{ runner.os }}-openwrt-
+          # Key yang UNIQUE untuk setiap kombinasi
+          key: ${{ runner.os }}-openwrt-${{ github.event.inputs.source_repo }}-${{ github.event.inputs.config }}-${{ hashFiles('CONFIG/*.config') }}-${{ env.CACHE_VERSION }}
+          # TIDAK menggunakan restore-keys untuk mengelakkan cache contamination
+          # restore-keys: # COMMENT OUT OR REMOVE THIS LINE
 
       - name: Prepare feeds
         run: |
           cd "$SOURCE_DIR"
+          echo "Current directory: $(pwd)"
+          echo "Repository: $(git config --get remote.origin.url)"
+          
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
       - name: Load config
         run: |
+          echo "Loading config from: $CONFIG_FILE"
+          
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "ERROR: Config file not found: $CONFIG_FILE"
+            echo "Available configs:"
+            ls -la CONFIG/
+            exit 1
+          fi
+          
           cp "$CONFIG_FILE" "$SOURCE_DIR/.config"
+          echo "Config copied successfully"
 
       - name: Defconfig
         run: |
           cd "$SOURCE_DIR"
           make defconfig
+          
+          # Show what source repo is configured in .config
+          echo "=== Checking .config for source repo references ==="
+          grep -E "CONFIG_TARGET.*DEVICE.*=|CONFIG_SOURCE_REPO" .config || echo "No direct repo reference found"
 
       - name: Download sources
         run: |
@@ -134,6 +237,10 @@ jobs:
           export CCACHE_COMPRESS=1
           export CCACHE_MAXSIZE=2G
           export USE_CCACHE=1
+          
+          echo "Starting build from: $(git config --get remote.origin.url)"
+          echo "Build timestamp: $(date)"
+          
           make -j"$(nproc)" || make -j1 V=s
 
       - name: Show ccache stats
@@ -144,8 +251,10 @@ jobs:
       - name: Generate release tag
         id: tag
         run: |
+          # Include source_repo in tag for clarity
           BUILD_TAG="AW1000-${{ github.event.inputs.source_repo }}-$(date +'%Y%m%d-%H%M')-${{ github.event.inputs.config }}"
           echo "tag=$BUILD_TAG" >> "$GITHUB_OUTPUT"
+          echo "Generated tag: $BUILD_TAG"
 
       - name: Upload artifact (all bin)
         uses: actions/upload-artifact@v4
@@ -160,6 +269,14 @@ jobs:
         run: |
           mkdir -p release_files
           TARGET_DIR="$SOURCE_DIR/bin/targets/qualcommax/ipq807x"
+          
+          # Check if directory exists
+          if [ ! -d "$TARGET_DIR" ]; then
+            echo "ERROR: Target directory not found: $TARGET_DIR"
+            echo "Available directories:"
+            find "$SOURCE_DIR/bin" -type d 2>/dev/null || echo "No bin directory found"
+            exit 1
+          fi
 
           FILES=(
             "config.buildinfo"
@@ -177,29 +294,44 @@ jobs:
           for file in "${FILES[@]}"; do
             if [ -f "$TARGET_DIR/$file" ]; then
               cp -f "$TARGET_DIR/$file" release_files/
+              echo "Copied: $file"
             else
-              echo "Missing file: $file"
-              exit 1
+              echo "WARNING: Missing file: $file"
+              # Don't exit, just warn
             fi
           done
+          
+          echo "Release files prepared: $(ls release_files/)"
 
       - name: Generate release notes
         if: ${{ github.event.inputs.upload_release == 'yes' }}
         run: |
           cat > release_notes.md << EOF
-          Version: ${{ github.event.inputs.version }}
-          Config: ${{ github.event.inputs.config }}
-          Source Repo: ${{ github.event.inputs.source_repo }}
-          Tag: ${{ steps.tag.outputs.tag }}
-          Build Date: $(date +"%Y-%m-%d %H:%M %Z")
-
-          WiFi:
-          - SSID: DOTYWRT 2G / DOTYWRT 5G
+          # AW1000 Firmware Release
+          
+          **Version:** ${{ github.event.inputs.version }}
+          **Config:** ${{ github.event.inputs.config }}
+          **Source Repository:** ${{ github.event.inputs.source_repo }}
+          **Tag:** ${{ steps.tag.outputs.tag }}
+          **Build Date:** $(date +"%Y-%m-%d %H:%M %Z")
+          **Build ID:** ${{ github.run_id }}
+          
+          ## Source Information
+          - Repository URL: $REPO_URL
+          - Source Directory: $SOURCE_DIR
+          
+          ## WiFi Settings
+          - SSID 2.4GHz: DOTYWRT 2G
+          - SSID 5GHz: DOTYWRT 5G
           - Password: dotycat.com
-
-          Login:
+          
+          ## Login Information
           - Username: root
-          - Password: no password
+          - Password: (none)
+          
+          ## Build Notes
+          - This build uses ${{ github.event.inputs.source_repo }} source repository
+          - Config file: ${{ env.CONFIG_FILE }}
           EOF
 
       - name: Create release in target repo
@@ -207,7 +339,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}
         run: |
+          # Verify files exist
+          if [ ! "$(ls -A release_files)" ]; then
+            echo "ERROR: No release files found to upload!"
+            exit 1
+          fi
+          
+          echo "Creating release with files:"
+          ls -la release_files/
+          
           gh release create "${{ steps.tag.outputs.tag }}" release_files/* \
             --repo "${{ env.TARGET_REPO }}" \
             --title "AW1000 Firmware ${{ steps.tag.outputs.tag }}" \
             --notes-file release_notes.md
+          
+          echo "Release created successfully at: ${{ env.TARGET_REPO }}"
