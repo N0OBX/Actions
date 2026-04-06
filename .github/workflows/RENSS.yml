@@ -37,9 +37,15 @@ jobs:
           cd immortalwrt || exit 1
           git diff-tree --no-commit-id --name-only -r ec578d244e815f9b7e8c3216a09db3e061c5b630 > ../changed.txt
           echo "Files in commit:"
-          cat ../changed.txt || true
-          if [[ ! -s ../changed.txt ]]; then
+          if [ -f ../changed.txt ]; then
+            cat ../changed.txt || true
+            if [ ! -s ../changed.txt ]; then
+              echo "NO_CHANGES=true" >> $GITHUB_ENV
+            fi
+          else
+            echo "changed.txt not found, skipping"
             echo "NO_CHANGES=true" >> $GITHUB_ENV
+          fi
 
       # 5. Create DOTYCAT folder
       - name: Create DOTYCAT folder
