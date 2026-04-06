@@ -37,6 +37,7 @@ jobs:
           cat changed.txt
           if [[ ! -s changed.txt ]]; then
             echo "NO_CHANGES=true" >> $GITHUB_ENV
+          fi
 
       # 5. Prepare empty target repo folder
       - name: Prepare target folder
