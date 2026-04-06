@@ -1,4 +1,4 @@
-name: Push DOTYCAT Folder to Target Repo
+name: Sync ImmortalWrt Commit to DOTYCAT
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
     - cron: "59 15 * * *" # Daily at 11:59 PM MYT
 
 jobs:
-  push_dotycat:
+  sync_commit:
     runs-on: ubuntu-latest
 
     steps:
@@ -33,12 +33,13 @@ jobs:
       # 4. List added/edited files in commit
       - name: List files in commit
         run: |
-          cd immortalwrt
+          cd immortalwrt || exit 1
           git diff-tree --no-commit-id --name-only -r ec578d244e815f9b7e8c3216a09db3e061c5b630 > ../changed.txt
           echo "Files in commit:"
-          cat ../changed.txt
+          cat ../changed.txt || true
           if [[ ! -s ../changed.txt ]]; then
             echo "NO_CHANGES=true" >> $GITHUB_ENV
+          fi
 
       # 5. Create DOTYCAT folder
       - name: Create DOTYCAT folder
@@ -58,11 +59,11 @@ jobs:
             fi
           done < changed.txt
 
-      # 7. Commit & push all files inside DOTYCAT to target repo
+      # 7. Commit & push DOTYCAT folder to target repo
       - name: Commit & Push DOTYCAT
         if: env.NO_CHANGES != 'true'
         run: |
-          cd DOTYCAT
+          cd DOTYCAT || exit 1
           git init
           git checkout -b $BRANCH
           git config user.name "github-actions"
