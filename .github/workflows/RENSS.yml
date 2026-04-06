@@ -1,4 +1,4 @@
-name: RENSS V2
+name: DOTYCAT
 
 on:
   workflow_dispatch:
@@ -10,13 +10,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout workspace
       - name: Checkout workspace
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2. Set branch name with Malaysia time
       - name: Set branch name (Malaysia time)
         run: |
           export TZ="Asia/Kuala_Lumpur"
@@ -24,56 +22,53 @@ jobs:
           echo "BRANCH=sync-$DATE" >> $GITHUB_ENV
           echo "Branch will be: sync-$DATE"
 
-      # 3. Clone ImmortalWrt and checkout commit
-      - name: Clone ImmortalWrt at commit
+      - name: Clone ImmortalWrt
         run: |
           git clone https://github.com/laipeng668/immortalwrt.git
           cd immortalwrt
           git checkout ec578d244e815f9b7e8c3216a09db3e061c5b630
 
-      # 4. List added/edited files in commit
       - name: List files in commit
         run: |
           cd immortalwrt || exit 1
-          git diff-tree --no-commit-id --name-only -r ec578d244e815f9b7e8c3216a09db3e061c5b630 > ../changed.txt
+          git show --pretty="" --name-only ec578d244e815f9b7e8c3216a09db3e061c5b630 > ../changed.txt
           echo "Files in commit:"
-          if [ -f ../changed.txt ]; then
-            cat ../changed.txt || true
-            if [ ! -s ../changed.txt ]; then
-              echo "NO_CHANGES=true" >> $GITHUB_ENV
+          cat ../changed.txt || true
+          # Check if at least one file exists in immortalwrt
+          FOUND=0
+          while read file; do
+            if [ -f "immortalwrt/$file" ]; then
+              FOUND=1
+              break
             fi
-          else
-            echo "changed.txt not found, skipping"
+          done < ../changed.txt
+          if [ $FOUND -eq 0 ]; then
             echo "NO_CHANGES=true" >> $GITHUB_ENV
-          fi
 
-      # 5. Create DOTYCAT folder
       - name: Create DOTYCAT folder
         if: env.NO_CHANGES != 'true'
         run: mkdir -p DOTYCAT
 
-      # 6. Copy changed files to DOTYCAT preserving folder structure
       - name: Copy files to DOTYCAT
         if: env.NO_CHANGES != 'true'
         run: |
+          echo "Copying files to DOTYCAT..."
           while read file; do
             if [ -f "immortalwrt/$file" ]; then
               mkdir -p "DOTYCAT/$(dirname "$file")"
               cp -f "immortalwrt/$file" "DOTYCAT/$file"
+              echo "Copied: $file"
             else
               echo "Skipping missing file: $file"
             fi
           done < changed.txt
 
-          # Copy changed.txt and README.md into DOTYCAT
+          # Copy changed.txt and README.md
           cp -f changed.txt DOTYCAT/changed.txt
           if [ -f "immortalwrt/README.md" ]; then
             cp -f immortalwrt/README.md DOTYCAT/README.md
-          else
-            echo "README.md not found, skipping"
           fi
 
-      # 7. Commit & push DOTYCAT folder to target repo
       - name: Commit & Push DOTYCAT
         if: env.NO_CHANGES != 'true'
         run: |
@@ -82,18 +77,15 @@ jobs:
           git checkout -b $BRANCH
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-
           git add .
           if git diff --cached --quiet; then
             echo "No files to commit, skipping push"
             exit 0
           fi
-
           git commit -m "Add files from ImmortalWrt commit ec578d244e815f9b7e8c3216a09db3e061c5b630"
           git remote add origin https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/N0OBX/Qcom-nss.git
           git push -u origin $BRANCH
 
-      # 8. No changes case
       - name: No changes
         if: env.NO_CHANGES == 'true'
         run: echo "No new or edited files to sync from this commit"
