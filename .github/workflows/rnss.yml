@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout Repo A
+      # 1. Checkout source repo
       - name: Checkout source
         uses: actions/checkout@v4
         with:
@@ -34,9 +34,8 @@ jobs:
         run: |
           if [[ -z $(git status --porcelain) ]]; then
             echo "NO_CHANGES=true" >> $GITHUB_ENV
-          fi
 
-      # 5. Create a temporary folder for target repo
+      # 5. Prepare empty target repo folder
       - name: Prepare target folder
         if: env.NO_CHANGES != 'true'
         run: |
@@ -47,17 +46,22 @@ jobs:
           git checkout -b $BRANCH
           cd ..
 
-      # 6. Copy ONLY changed files
+      # 6. Copy all added/modified files preserving folder structure
       - name: Copy changed files
         if: env.NO_CHANGES != 'true'
         run: |
           git diff --name-only > changed.txt
           while read file; do
-            mkdir -p "target/$(dirname "$file")"
-            cp -f "$file" "target/$file"
+            # Only copy files that exist (skip missing)
+            if [ -f "$file" ]; then
+              mkdir -p "target/$(dirname "$file")"
+              cp -f "$file" "target/$file"
+            else
+              echo "Skipping missing file: $file"
+            fi
           done < changed.txt
 
-      # 7. Commit & push to empty target repo
+      # 7. Commit & push
       - name: Commit & Push
         if: env.NO_CHANGES != 'true'
         run: |
@@ -69,7 +73,7 @@ jobs:
           git remote add origin https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/N0OBX/Qcom-nss.git
           git push -u origin $BRANCH
 
-      # 8. No changes case
+      # 8. No changes
       - name: No changes
         if: env.NO_CHANGES == 'true'
         run: echo "Nothing to sync today"
