@@ -1,34 +1,53 @@
-name: Copy commit files to DOTYCAT
+name: Push DOTYCAT Folder to Target Repo
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "59 15 * * *" # Daily at 11:59 PM MYT
 
 jobs:
-  copy_commit_files:
+  push_dotycat:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Clone ImmortalWrt
-      - name: Clone ImmortalWrt
+      # 1. Checkout workspace
+      - name: Checkout workspace
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2. Set branch name with date + time
+      - name: Set branch name
+        run: |
+          DATE=$(date +'%Y-%m-%d-%H%M')
+          echo "BRANCH=sync-$DATE" >> $GITHUB_ENV
+          echo "Branch will be: sync-$DATE"
+
+      # 3. Clone ImmortalWrt and checkout commit
+      - name: Clone ImmortalWrt at commit
         run: |
           git clone https://github.com/laipeng668/immortalwrt.git
           cd immortalwrt
           git checkout ec578d244e815f9b7e8c3216a09db3e061c5b630
 
-      # 2. List files changed in the commit
+      # 4. List added/edited files in commit
       - name: List files in commit
         run: |
           cd immortalwrt
           git diff-tree --no-commit-id --name-only -r ec578d244e815f9b7e8c3216a09db3e061c5b630 > ../changed.txt
           echo "Files in commit:"
           cat ../changed.txt
+          if [[ ! -s ../changed.txt ]]; then
+            echo "NO_CHANGES=true" >> $GITHUB_ENV
 
-      # 3. Create DOTYCAT folder
+      # 5. Create DOTYCAT folder
       - name: Create DOTYCAT folder
+        if: env.NO_CHANGES != 'true'
         run: mkdir -p DOTYCAT
 
-      # 4. Copy changed files into DOTYCAT, preserving folder structure
+      # 6. Copy changed files to DOTYCAT preserving folder structure
       - name: Copy files to DOTYCAT
+        if: env.NO_CHANGES != 'true'
         run: |
           while read file; do
             if [ -f "immortalwrt/$file" ]; then
@@ -39,8 +58,27 @@ jobs:
             fi
           done < changed.txt
 
-      # 5. Optional: List files copied
-      - name: List files copied
+      # 7. Commit & push all files inside DOTYCAT to target repo
+      - name: Commit & Push DOTYCAT
+        if: env.NO_CHANGES != 'true'
         run: |
-          echo "Files copied into DOTYCAT:"
-          find DOTYCAT -type f
+          cd DOTYCAT
+          git init
+          git checkout -b $BRANCH
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+
+          git add .
+          if git diff --cached --quiet; then
+            echo "No files to commit, skipping push"
+            exit 0
+          fi
+
+          git commit -m "Add files from ImmortalWrt commit ec578d244e815f9b7e8c3216a09db3e061c5b630"
+          git remote add origin https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/N0OBX/Qcom-nss.git
+          git push -u origin $BRANCH
+
+      # 8. No changes case
+      - name: No changes
+        if: env.NO_CHANGES == 'true'
+        run: echo "No new or edited files to sync from this commit"
