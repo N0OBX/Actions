@@ -9,6 +9,7 @@ on:
         default: TU02
         type: choice
         options:
+          - ITR1
           - TU02
           - immortalwrt
 
