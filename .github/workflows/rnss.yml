@@ -1,87 +1,46 @@
-name: Sync Specific ImmortalWrt Commit
+name: Copy commit files to DOTYCAT
 
 on:
-  schedule:
-    - cron: "59 15 * * *"  # Daily at 11:59 PM MYT
   workflow_dispatch:
 
 jobs:
-  sync:
+  copy_commit_files:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout source repo
-      - name: Checkout source
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      # 2. Set branch name with date + time
-      - name: Set branch
+      # 1. Clone ImmortalWrt
+      - name: Clone ImmortalWrt
         run: |
-          DATE=$(date +'%Y-%m-%d-%H%M')
-          echo "BRANCH=$DATE" >> $GITHUB_ENV
-          echo "Branch will be: $DATE"
+          git clone https://github.com/laipeng668/immortalwrt.git
+          cd immortalwrt
+          git checkout ec578d244e815f9b7e8c3216a09db3e061c5b630
 
-      # 3. Fetch ImmortalWrt
-      - name: Fetch ImmortalWrt
-        run: |
-          git remote add immortalwrt https://github.com/laipeng668/immortalwrt.git
-          git fetch immortalwrt
-
-      # 4. List files changed in the specific commit
+      # 2. List files changed in the commit
       - name: List files in commit
         run: |
-          git diff-tree --no-commit-id --name-only -r ec578d244e815f9b7e8c3216a09db3e061c5b630 > changed.txt
+          cd immortalwrt
+          git diff-tree --no-commit-id --name-only -r ec578d244e815f9b7e8c3216a09db3e061c5b630 > ../changed.txt
           echo "Files in commit:"
-          cat changed.txt
-          if [[ ! -s changed.txt ]]; then
-            echo "NO_CHANGES=true" >> $GITHUB_ENV
-          fi
+          cat ../changed.txt
 
-      # 5. Prepare empty target repo folder
-      - name: Prepare target folder
-        if: env.NO_CHANGES != 'true'
-        run: |
-          rm -rf target
-          mkdir target
-          cd target
-          git init
-          git checkout -b $BRANCH
-          cd ..
+      # 3. Create DOTYCAT folder
+      - name: Create DOTYCAT folder
+        run: mkdir -p DOTYCAT
 
-      # 6. Copy changed files preserving folder structure
-      - name: Copy files from commit
-        if: env.NO_CHANGES != 'true'
+      # 4. Copy changed files into DOTYCAT, preserving folder structure
+      - name: Copy files to DOTYCAT
         run: |
           while read file; do
-            if [ -f "$file" ]; then
-              mkdir -p "target/$(dirname "$file")"
-              cp -f "$file" "target/$file"
+            if [ -f "immortalwrt/$file" ]; then
+              mkdir -p "DOTYCAT/$(dirname "$file")"
+              cp -f "immortalwrt/$file" "DOTYCAT/$file"
             else
               echo "Skipping missing file: $file"
             fi
           done < changed.txt
 
-      # 7. Commit & push to target repo
-      - name: Commit & Push
-        if: env.NO_CHANGES != 'true'
+      # 5. Optional: List files copied
+      - name: List files copied
         run: |
-          cd target
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-
-          git add .
-          if git diff --cached --quiet; then
-            echo "No files to commit, skipping push"
-            exit 0
-          fi
-
-          git commit -m "ec578d244e815f9b7e8c3216a09db3e061c5b630"
-          git remote add origin https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/N0OBX/Qcom-nss.git
-          git push -u origin $BRANCH
-
-      # 8. No changes case
-      - name: No changes
-        if: env.NO_CHANGES == 'true'
-        run: echo "Nothing to sync from this commit"
+          echo "Files copied into DOTYCAT:"
+          find DOTYCAT -type f
