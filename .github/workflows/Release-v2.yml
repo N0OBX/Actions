@@ -6,9 +6,10 @@ on:
       source_repo:
         description: "Select source repository"
         required: true
-        default: TU02
+        default: IPQ
         type: choice
         options:
+          - IPQ
           - ITR1
           - TU02
           - immortalwrt
