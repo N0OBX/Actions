@@ -1,0 +1,165 @@
+name: ipq807x-AW1000-ImmortalWrt
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt.git
+  REPO_BRANCH: master
+  CONFIG_FILE: configs/ipq807x-aw1000.config
+  GENERAL_CONFIG_FILE: configs/General.config
+  DIY_SCRIPT: scripts/Roc-script.sh
+  CLASH_KERNEL: arm64
+  FIRMWARE_TAG: ipq807x-aw1000
+  TZ: Asia/Kuala_Lumpur
+
+jobs:
+  Build:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Check Server Performance
+      run: |
+        echo "WARNING ⚠"
+        echo "The allocated server performance is limited. If too many plugins are selected, pay attention to CPU performance!"
+        echo -e "Known CPU models (descending): 7763, 8370C, 8272CL, 8171M, E5-2673 \n"
+        echo "--------------------------CPU INFO--------------------------"
+        echo "CPU physical count: $(cat /proc/cpuinfo | grep "physical id" | sort | uniq | wc -l)"
+        echo -e "CPU core info: $(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c) \n"
+        echo "--------------------------MEMORY INFO--------------------------"
+        echo "Installed memory:"
+        echo -e "$(sudo lshw -short -C memory | grep GiB) \n"
+        echo "--------------------------DISK INFO--------------------------"
+        echo "Disk count: $(ls /dev/sd* | grep -v [1-9] | wc -l)" && df -hT
+
+    - name: Initialize Environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo -E apt-get -y update
+        sudo -E apt-get -y install $(curl -fsSL ophub.org/ubuntu2404-make-openwrt-depends)
+        sudo -E systemctl daemon-reload
+        sudo timedatectl set-timezone "$TZ"
+
+    - name: Checkout
+      uses: actions/checkout@main
+
+    - name: Clone Source Code
+      run: |
+        df -hT $GITHUB_WORKSPACE
+        sudo mkdir -p /mnt/openwrt
+        sudo chown -R $(id -u):$(id -g) /mnt/openwrt
+        git clone --depth 1 -b $REPO_BRANCH --single-branch $REPO_URL /mnt/openwrt
+        cd /mnt/openwrt
+        echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
+        VERSION_INFO=$(git show -s --date=short --format="Author: %an<br/>Date: %cd<br/>Message: %s<br/>hash: %H")
+        echo "VERSION_INFO=$VERSION_INFO" >> $GITHUB_ENV
+        VERSION_KERNEL=$(grep -oP 'LINUX_KERNEL_HASH-\K[0-9]+\.[0-9]+\.[0-9]+' target/linux/generic/kernel-6.12)
+        echo "VERSION_KERNEL=$VERSION_KERNEL" >> $GITHUB_ENV
+
+    - name: Generate Variables
+      run: |
+        cp $CONFIG_FILE $OPENWRT_PATH/.config
+        cd $OPENWRT_PATH
+        make defconfig > /dev/null 2>&1
+        SOURCE_REPO="$(echo $REPO_URL | awk -F '/' '{print $(NF)}')"
+        echo "SOURCE_REPO=$SOURCE_REPO" >> $GITHUB_ENV
+        DEVICE_TARGET=$(cat .config | grep CONFIG_TARGET_BOARD | awk -F '"' '{print $2}')
+        echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
+        DEVICE_SUBTARGET=$(cat .config | grep CONFIG_TARGET_SUBTARGET | awk -F '"' '{print $2}')
+        echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
+        echo "HASH=$(git log -1 --pretty=format:'%h')" >> $GITHUB_ENV
+        echo "CACHE_DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
+
+    - name: Cache Toolchain
+      uses: actions/cache@main
+      with:
+        key: ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.HASH }} ${{ env.CACHE_DATE }}
+        restore-keys: ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
+        path: |
+          ${{ env.OPENWRT_PATH }}/.ccache
+          ${{ env.OPENWRT_PATH }}/staging_dir
+
+    - name: Refresh Cache
+      run: |
+        if [ -d "$OPENWRT_PATH/staging_dir" ]; then
+          find "$OPENWRT_PATH/staging_dir" -type d -name "stamp" -not -path "*target*" | while read -r dir; do
+              find "$dir" -type f -exec touch {} +
+          done
+        fi
+
+    - name: Install Feeds
+      run: |
+        cd $OPENWRT_PATH
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+  
+    - name: Load Custom Configuration
+      run: |
+        chmod +x $DIY_SCRIPT
+        cd $OPENWRT_PATH
+        $GITHUB_WORKSPACE/$DIY_SCRIPT
+
+    - name: Download DL Packages
+      run: |
+        cat $CONFIG_FILE $GENERAL_CONFIG_FILE > $OPENWRT_PATH/.config
+        cd $OPENWRT_PATH
+        sed -i '/CONFIG_PACKAGE_sqm-scripts-nss=y/d' .config
+        sed -i 's|^\(CONFIG_TARGET_OPTIMIZATION=\).*"|\1"-O2 -pipe -mcpu=cortex-a53"|' .config
+        make defconfig
+        make download -j$(nproc)
+
+    - name: Compile Firmware
+      id: compile
+      run: |
+        cd $OPENWRT_PATH
+        echo -e "$(nproc) thread compile"
+        make -j$(nproc) || make -j1 || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
+        echo "DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
+        echo "FILE_DATE=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
+
+    - name: Check Space Usage
+      if: (!cancelled())
+      run: df -hT
+
+    - name: Organize Files
+      if: steps.compile.outputs.status == 'success'
+      run: |
+        cd $OPENWRT_PATH/bin/targets/*/*
+        cp $OPENWRT_PATH/.config ipq807x-aw1000.config
+        mv config.buildinfo ipq807x-aw1000.buildinfo
+        mv *.manifest ipq807x-aw1000.manifest
+        mv -f $OPENWRT_PATH/bin/packages/*/*/*.apk packages
+        tar -zcf ipq807x-aw1000.Packages.tar.gz packages
+        rm -rf packages feeds.buildinfo version.buildinfo sha256sums profiles.json
+        echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
+
+    - name: Upload Firmware To Release
+      if: steps.compile.outputs.status == 'success'
+      uses: ncipollo/release-action@main
+      with:
+        name: ${{ env.DATE }} for ${{ env.FIRMWARE_TAG }}
+        allowUpdates: true
+        tag: ${{ env.FIRMWARE_TAG }}
+        token: ${{ secrets.GITHUB_TOKEN }}
+        artifacts: ${{ env.FIRMWARE_PATH }}/*
+        body: |
+          **This is OpenWrt Firmware for ${{ env.FIRMWARE_TAG }}**
+          - Platform: ipq807x (AW1000)
+          - Source: ${{ env.REPO_URL }}
+          - Branch: ${{ env.REPO_BRANCH }}
+          - Default IP: 192.168.2.1
+          - Default Password: none
+          - Kernel Version: ${{ env.VERSION_KERNEL }}
+          - Build Info:
+          ${{ env.VERSION_INFO }}
+
+    - name: Delete Old Cache
+      run: |
+        gh cache list --key ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}- --json key --jq '.[] | .key' | while read -r key; do
+          gh cache delete "$key"
+        done
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
