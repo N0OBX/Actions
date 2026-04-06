@@ -1,0 +1,85 @@
+name: TURBOACC
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "59 15 * * *" # Daily at 11:59 PM MYT
+
+jobs:
+  sync_commit:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 0. Set timezone to Malaysia
+      - name: Set timezone to Malaysia
+        run: sudo timedatectl set-timezone Asia/Kuala_Lumpur
+
+      # 1. Checkout workspace
+      - name: Checkout workspace
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2. Set branch name with date + time (Malaysia timezone)
+      - name: Set branch name
+        run: |
+          DATE=$(date +'%Y-%m-%d-%H%M')
+          echo "BRANCH=$DATE" >> $GITHUB_ENV
+          echo "Branch will be: $DATE"
+
+      # 3. Clone ImmortalWrt and checkout commit
+      - name: Clone ImmortalWrt at commit
+        run: |
+          git clone https://github.com/dotywrt/ht.git
+          cd immortalwrt
+          git checkout a237d0b538f0b3ce05477ea9ade3e48a41c6d226
+
+      # 4. List added/edited files in commit
+      - name: List files in commit
+        run: |
+          cd immortalwrt || exit 1
+          git diff-tree --no-commit-id --name-only -r a237d0b538f0b3ce05477ea9ade3e48a41c6d226 > ../changed.txt
+          echo "Files in commit:"
+          cat ../changed.txt || true
+          if [[ ! -s ../changed.txt ]]; then
+            echo "NO_CHANGES=true" >> $GITHUB_ENV
+          fi
+
+      # 5. Create DOTYCAT folder and copy changed.txt
+      - name: Create DOTYCAT folder
+        if: env.NO_CHANGES != 'true'
+        run: |
+          mkdir -p DOTYCAT
+          cp changed.txt DOTYCAT/changed.txt
+
+      # 6. Copy changed files to DOTYCAT preserving folder structure
+      - name: Copy files to DOTYCAT
+        if: env.NO_CHANGES != 'true'
+        run: |
+          while read file; do
+            if [ -f "immortalwrt/$file" ]; then
+              mkdir -p "DOTYCAT/$(dirname "$file")"
+              cp -f "immortalwrt/$file" "DOTYCAT/$file"
+            else
+              echo "Skipping missing file: $file"
+            fi
+          done < changed.txt
+
+      # 7. Commit & push DOTYCAT folder to target repo
+      - name: Commit & Push DOTYCAT
+        if: env.NO_CHANGES != 'true'
+        run: |
+          cd DOTYCAT || exit 1
+          git init
+          git checkout -b $BRANCH
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+
+          git add .
+          if git diff --cached --quiet; then
+            echo "No files to commit, skipping push"
+            exit 0
+          fi
+
+          git commit -m "Turboacc"
+          git remote add origin https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/N0OBX/Qcom-nss.git
+          git push -u origin $BRANCH
