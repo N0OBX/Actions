@@ -1,8 +1,8 @@
-name: Cross Repo Sync (Final)
+name: Sync ImmortalWrt Commit to Empty Repo
 
 on:
   schedule:
-    - cron: "59 15 * * *"   # 11:59 PM Malaysia
+    - cron: "59 15 * * *"   # 11:59 PM MYT
   workflow_dispatch:
 
 jobs:
@@ -22,50 +22,54 @@ jobs:
           DATE=$(date +'%Y-%m-%d')
           echo "BRANCH=sync-$DATE" >> $GITHUB_ENV
 
-      # 3. Apply ImmortalWrt commit (only changes)
-      - name: Apply commit
+      # 3. Apply ImmortalWrt commit
+      - name: Apply ImmortalWrt commit
         run: |
           git remote add immortalwrt https://github.com/laipeng668/immortalwrt.git
           git fetch immortalwrt
           git cherry-pick ec578d244e815f9b7e8c3216a09db3e061c5b630 || true
 
-      # 4. Check if changes exist
-      - name: Check changes
+      # 4. Check if any changes
+      - name: Detect changes
         run: |
           if [[ -z $(git status --porcelain) ]]; then
             echo "NO_CHANGES=true" >> $GITHUB_ENV
           fi
 
-      # 5. Clone target repo using TOKEN
-      - name: Clone target repo
+      # 5. Create a temporary folder for target repo
+      - name: Prepare target folder
         if: env.NO_CHANGES != 'true'
         run: |
-          git clone https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/N0OBX/Qcom-nss.git target
-
-      # 6. Copy only changed files
-      - name: Sync changed files
-        if: env.NO_CHANGES != 'true'
-        run: |
+          rm -rf target
+          mkdir target
           cd target
-          git checkout -b $BRANCH || git checkout $BRANCH
+          git init
+          git checkout -b $BRANCH
           cd ..
 
+      # 6. Copy ONLY changed files
+      - name: Copy changed files
+        if: env.NO_CHANGES != 'true'
+        run: |
           git diff --name-only > changed.txt
-
           while read file; do
             mkdir -p "target/$(dirname "$file")"
             cp -f "$file" "target/$file"
           done < changed.txt
 
-      # 7. Commit & push
-      - name: Push changes
+      # 7. Commit & push to empty target repo
+      - name: Commit & Push
         if: env.NO_CHANGES != 'true'
         run: |
           cd target
-
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-
           git add .
-          git commit -m "Sync: $BRANCH (ImmortalWrt selective)" || true
-          git push origin $BRANCH
+          git commit -m "Sync ImmortalWrt commit $BRANCH" || true
+          git remote add origin https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/N0OBX/Qcom-nss.git
+          git push -u origin $BRANCH
+
+      # 8. No changes case
+      - name: No changes
+        if: env.NO_CHANGES == 'true'
+        run: echo "Nothing to sync today"
