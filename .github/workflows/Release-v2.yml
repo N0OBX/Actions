@@ -19,6 +19,7 @@ on:
         default: FULL-AW1K
         type: choice
         options:
+          - NSS-AW1K
           - AW1K
           - 5866T
           - FULL-AW1K
