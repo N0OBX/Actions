@@ -29,15 +29,15 @@ jobs:
       # 3. Clone ImmortalWrt and checkout commit
       - name: Clone ImmortalWrt at commit
         run: |
-          git clone https://github.com/laipeng668/immortalwrt.git
+          git clone https://github.com/N0OBX/immortalwrt.git
           cd immortalwrt
-          git checkout ec578d244e815f9b7e8c3216a09db3e061c5b630
+          git checkout 907cfcf044d1ee370d0795c528a711ccc8d294b5
 
       # 4. List added/edited files in commit
       - name: List files in commit
         run: |
           cd immortalwrt || exit 1
-          git diff-tree --no-commit-id --name-only -r ec578d244e815f9b7e8c3216a09db3e061c5b630 > ../changed.txt
+          git diff-tree --no-commit-id --name-only -r 907cfcf044d1ee370d0795c528a711ccc8d294b5 > ../changed.txt
           echo "Files in commit:"
           cat ../changed.txt || true
           if [[ ! -s ../changed.txt ]]; then
