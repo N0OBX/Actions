@@ -1,4 +1,4 @@
-name: DOTYCAT
+name: Sync ImmortalWrt Commit to DOTYCAT
 
 on:
   workflow_dispatch:
@@ -20,7 +20,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 2. Set branch name with date + time
+      # 2. Set branch name with date + time (Malaysia timezone)
       - name: Set branch name
         run: |
           DATE=$(date +'%Y-%m-%d-%H%M')
@@ -45,13 +45,12 @@ jobs:
             echo "NO_CHANGES=true" >> $GITHUB_ENV
           fi
 
-      # 5. Create DOTYCAT folder
+      # 5. Create DOTYCAT folder and copy changed.txt
       - name: Create DOTYCAT folder
         if: env.NO_CHANGES != 'true'
         run: |
           mkdir -p DOTYCAT
-          # Copy changed.txt into DOTYCAT
-          cp ../changed.txt DOTYCAT/changed.txt
+          cp changed.txt DOTYCAT/changed.txt
 
       # 6. Copy changed files to DOTYCAT preserving folder structure
       - name: Copy files to DOTYCAT
