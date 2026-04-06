@@ -23,8 +23,8 @@ jobs:
       - name: Set branch name
         run: |
           DATE=$(date +'%Y-%m-%d-%H%M')
-          echo "BRANCH=sync-$DATE" >> $GITHUB_ENV
-          echo "Branch will be: sync-$DATE"
+          echo "BRANCH=$DATE" >> $GITHUB_ENV
+          echo "Branch will be: $DATE"
 
       # 3. Clone ImmortalWrt and checkout commit
       - name: Clone ImmortalWrt at commit
@@ -80,11 +80,6 @@ jobs:
             exit 0
           fi
 
-          git commit -m "Add files from ImmortalWrt commit ec578d244e815f9b7e8c3216a09db3e061c5b630"
+          git commit -m "Personal Tailor (qualcommax)"
           git remote add origin https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/N0OBX/Qcom-nss.git
           git push -u origin $BRANCH
-
-      # 8. No changes case
-      - name: No changes
-        if: env.NO_CHANGES == 'true'
-        run: echo "No new or edited files to sync from this commit"
