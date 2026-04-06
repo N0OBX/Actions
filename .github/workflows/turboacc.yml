@@ -26,17 +26,17 @@ jobs:
           echo "BRANCH=$DATE" >> $GITHUB_ENV
           echo "Branch will be: $DATE"
 
-      # 3. Clone ImmortalWrt and checkout commit
-      - name: Clone ImmortalWrt at commit
+      # 3. Clone ht and checkout commit
+      - name: Clone ht at commit
         run: |
           git clone https://github.com/dotywrt/ht.git
-          cd immortalwrt
+          cd ht
           git checkout a237d0b538f0b3ce05477ea9ade3e48a41c6d226
 
       # 4. List added/edited files in commit
       - name: List files in commit
         run: |
-          cd immortalwrt || exit 1
+          cd ht || exit 1
           git diff-tree --no-commit-id --name-only -r a237d0b538f0b3ce05477ea9ade3e48a41c6d226 > ../changed.txt
           echo "Files in commit:"
           cat ../changed.txt || true
@@ -56,9 +56,9 @@ jobs:
         if: env.NO_CHANGES != 'true'
         run: |
           while read file; do
-            if [ -f "immortalwrt/$file" ]; then
+            if [ -f "ht/$file" ]; then
               mkdir -p "DOTYCAT/$(dirname "$file")"
-              cp -f "immortalwrt/$file" "DOTYCAT/$file"
+              cp -f "ht/$file" "DOTYCAT/$file"
             else
               echo "Skipping missing file: $file"
             fi
