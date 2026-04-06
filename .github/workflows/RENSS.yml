@@ -1,5 +1,4 @@
-name: Sync ImmortalWrt Commit to DOTYCAT
-
+name: SYNNS
 on:
   workflow_dispatch:
   schedule:
