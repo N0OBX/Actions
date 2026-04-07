@@ -58,7 +58,7 @@ jobs:
           while read file; do
             if [ -f "openwrt/$file" ]; then
               mkdir -p "DOTYCAT/$(dirname "$file")"
-              cp -f "ht/$file" "DOTYCAT/$file"
+              cp -f "openwrt/$file" "DOTYCAT/$file"
             else
               echo "Skipping missing file: $file"
             fi
