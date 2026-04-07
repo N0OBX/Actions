@@ -56,7 +56,7 @@ jobs:
         if: env.NO_CHANGES != 'true'
         run: |
           while read file; do
-            if [ -f "ht/$file" ]; then
+            if [ -f "openwrt/$file" ]; then
               mkdir -p "DOTYCAT/$(dirname "$file")"
               cp -f "ht/$file" "DOTYCAT/$file"
             else
