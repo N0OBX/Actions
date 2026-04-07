@@ -1,0 +1,85 @@
+name: LIONAL 6.12.74
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "59 15 * * *" # Daily at 11:59 PM MYT
+
+jobs:
+  sync_commit:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 0. Set timezone to Malaysia
+      - name: Set timezone to Malaysia
+        run: sudo timedatectl set-timezone Asia/Kuala_Lumpur
+
+      # 1. Checkout workspace
+      - name: Checkout workspace
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2. Set branch name with date + time (Malaysia timezone)
+      - name: Set branch name
+        run: |
+          DATE=$(date +'%Y-%m-%d-%H%M')
+          echo "BRANCH=$DATE" >> $GITHUB_ENV
+          echo "Branch will be: $DATE"
+
+      # 3. Clone ht and checkout commit
+      - name: Clone ht at commit
+        run: |
+          git clone https://github.com/Lienol/openwrt.git
+          cd ht
+          git checkout 907fbefd3936f27a72d0b87f4a593f8f94a246d7
+
+      # 4. List added/edited files in commit
+      - name: List files in commit
+        run: |
+          cd ht || exit 1
+          git diff-tree --no-commit-id --name-only -r 907fbefd3936f27a72d0b87f4a593f8f94a246d7 > ../changed.txt
+          echo "Files in commit:"
+          cat ../changed.txt || true
+          if [[ ! -s ../changed.txt ]]; then
+            echo "NO_CHANGES=true" >> $GITHUB_ENV
+          fi
+
+      # 5. Create DOTYCAT folder and copy changed.txt
+      - name: Create DOTYCAT folder
+        if: env.NO_CHANGES != 'true'
+        run: |
+          mkdir -p DOTYCAT
+          cp changed.txt DOTYCAT/changed.txt
+
+      # 6. Copy changed files to DOTYCAT preserving folder structure
+      - name: Copy files to DOTYCAT
+        if: env.NO_CHANGES != 'true'
+        run: |
+          while read file; do
+            if [ -f "ht/$file" ]; then
+              mkdir -p "DOTYCAT/$(dirname "$file")"
+              cp -f "ht/$file" "DOTYCAT/$file"
+            else
+              echo "Skipping missing file: $file"
+            fi
+          done < changed.txt
+
+      # 7. Commit & push DOTYCAT folder to target repo
+      - name: Commit & Push DOTYCAT
+        if: env.NO_CHANGES != 'true'
+        run: |
+          cd DOTYCAT || exit 1
+          git init
+          git checkout -b $BRANCH
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+
+          git add .
+          if git diff --cached --quiet; then
+            echo "No files to commit, skipping push"
+            exit 0
+          fi
+
+          git commit -m "LIONAL-6.12-74"
+          git remote add origin https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/N0OBX/Qcom-nss.git
+          git push -u origin $BRANCH
