@@ -36,7 +36,7 @@ jobs:
       # 4. List added/edited files in commit
       - name: List files in commit
         run: |
-          cd ht || exit 1
+          cd openwrt || exit 1
           git diff-tree --no-commit-id --name-only -r 907fbefd3936f27a72d0b87f4a593f8f94a246d7 > ../changed.txt
           echo "Files in commit:"
           cat ../changed.txt || true
