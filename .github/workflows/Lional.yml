@@ -30,7 +30,7 @@ jobs:
       - name: Clone ht at commit
         run: |
           git clone https://github.com/Lienol/openwrt.git
-          cd ht
+          cd openwrt
           git checkout 907fbefd3936f27a72d0b87f4a593f8f94a246d7
 
       # 4. List added/edited files in commit
