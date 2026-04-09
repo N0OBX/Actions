@@ -26,18 +26,18 @@ jobs:
           echo "BRANCH=$DATE" >> $GITHUB_ENV
           echo "Branch will be: $DATE"
 
-      # 3. Clone ImmortalWrt and checkout commit
-      - name: Clone ImmortalWrt at commit
+      # 3. Clone REIPQ and checkout commit
+      - name: Clone REIPQ at commit
         run: |
-          git clone https://github.com/N0OBX/immortalwrt.git
-          cd immortalwrt
+          git clone https://github.com/dotywrt/REIPQ.git
+          cd REIPQ
           git checkout 907cfcf044d1ee370d0795c528a711ccc8d294b5
 
       # 4. List added/edited files in commit
       - name: List files in commit
         run: |
-          cd immortalwrt || exit 1
-          git diff-tree --no-commit-id --name-only -r 907cfcf044d1ee370d0795c528a711ccc8d294b5 > ../changed.txt
+          cd REIPQ || exit 1
+          git diff-tree --no-commit-id --name-only -r 39763a303f56dc80ce0640641e3f1093bc1ea44b > ../changed.txt
           echo "Files in commit:"
           cat ../changed.txt || true
           if [[ ! -s ../changed.txt ]]; then
@@ -56,9 +56,9 @@ jobs:
         if: env.NO_CHANGES != 'true'
         run: |
           while read file; do
-            if [ -f "immortalwrt/$file" ]; then
+            if [ -f "REIPQ/$file" ]; then
               mkdir -p "DOTYCAT/$(dirname "$file")"
-              cp -f "immortalwrt/$file" "DOTYCAT/$file"
+              cp -f "REIPQ/$file" "DOTYCAT/$file"
             else
               echo "Skipping missing file: $file"
             fi
