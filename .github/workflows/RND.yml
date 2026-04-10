@@ -1,0 +1,205 @@
+name: Build And Release xcc (Manual Repo)
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo_url:
+        description: "Git repo URL (example: https://github.com/user/repo.git)"
+        required: true
+        default: "https://github.com/N0OBX/QSDK-25.12.2.git"
+        type: string
+
+      config:
+        description: "Select config file"
+        required: true
+        default: 25122
+        type: choice
+        options:
+          - 25122
+          - NSS-AW1K
+          - AW1K
+          - 5866T
+          - FULL-AW1K
+          - FULL-5866T
+
+      version:
+        description: "Version"
+        required: true
+        default: "V1.5.0"
+        type: string
+
+      upload_release:
+        description: "Upload release?"
+        required: true
+        default: "no"
+        type: choice
+        options:
+          - "yes"
+          - "no"
+
+permissions:
+  contents: write
+
+env:
+  SOURCE_DIR: OPENWRT
+  CONFIG_FILE: CONFIG/${{ github.event.inputs.config }}.config
+  TZ: Asia/Kuala_Lumpur
+  TARGET_REPO: dotywrt/DOTYWRT
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout workflow repo
+        uses: actions/checkout@v4
+
+      - name: Setup Git auth
+        run: |
+          git config --global url."https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      # ============================================================
+      # INSTALL DEPENDENCIES
+      # ============================================================
+      - name: Install dependencies
+        run: |
+          sudo apt update -y
+          sudo apt install -y \
+            ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib \
+            g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev \
+            libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev \
+            libreadline-dev libssl-dev libtool libyaml-dev libz-dev lld llvm lrzsz mkisofs msmtp nano \
+            ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils \
+            python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs \
+            upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd gh
+
+      # ============================================================
+      # FULL CLEAN (NO CACHE)
+      # ============================================================
+      - name: Clean everything
+        run: |
+          echo "FULL CLEAN START"
+
+          sudo rm -rf OPENWRT
+          sudo rm -rf ~/.ccache .ccache
+          sudo rm -rf dl staging_dir tmp logs
+          sudo rm -rf .cache .config.old
+
+          echo "CLEAN DONE"
+
+      # ============================================================
+      # CLONE (MANUAL INPUT)
+      # ============================================================
+      - name: Clone source repo
+        run: |
+          echo "Cloning: ${{ github.event.inputs.repo_url }}"
+
+          git clone --depth 1 "${{ github.event.inputs.repo_url }}" "$SOURCE_DIR"
+
+          if [ ! -d "$SOURCE_DIR" ]; then
+            echo "CLONE FAILED"
+            exit 1
+          fi
+
+          cd "$SOURCE_DIR"
+          echo "Cloned repo:"
+          git config --get remote.origin.url
+
+      # ============================================================
+      # FEEDS
+      # ============================================================
+      - name: Prepare feeds
+        run: |
+          cd "$SOURCE_DIR"
+
+          [ -f feeds.conf.default ] && cp feeds.conf.default feeds.conf
+
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      # ============================================================
+      # CONFIG
+      # ============================================================
+      - name: Load config
+        run: |
+          cp "$CONFIG_FILE" "$SOURCE_DIR/.config"
+
+      - name: Defconfig
+        run: |
+          cd "$SOURCE_DIR"
+          make defconfig
+
+      # ============================================================
+      # DOWNLOAD
+      # ============================================================
+      - name: Download sources
+        run: |
+          cd "$SOURCE_DIR"
+          make download -j$(nproc)
+
+      # ============================================================
+      # BUILD
+      # ============================================================
+      - name: Build firmware
+        run: |
+          cd "$SOURCE_DIR"
+          make -j$(nproc) || make -j1 V=s
+
+      # ============================================================
+      # TAG
+      # ============================================================
+      - name: Generate tag
+        id: tag
+        run: |
+          TAG="OPENWRT-$(date +'%Y%m%d-%H%M')-${{ github.event.inputs.config }}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      # ============================================================
+      # ARTIFACT
+      # ============================================================
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OPENWRT-${{ github.event.inputs.config }}-${{ steps.tag.outputs.tag }}
+          path: ${{ env.SOURCE_DIR }}/bin/**
+          retention-days: 7
+
+      # ============================================================
+      # RELEASE
+      # ============================================================
+      - name: Prepare release files
+        if: ${{ github.event.inputs.upload_release == 'yes' }}
+        run: |
+          mkdir -p release_files
+          TARGET="$SOURCE_DIR/bin/targets/qualcommax/ipq807x"
+
+          if [ -d "$TARGET" ]; then
+            cp -f $TARGET/* release_files/ || true
+          fi
+
+      - name: Release notes
+        if: ${{ github.event.inputs.upload_release == 'yes' }}
+        run: |
+          cat > notes.md << EOF
+          OpenWRT Build
+
+          Repo: ${{ github.event.inputs.repo_url }}
+          Version: ${{ github.event.inputs.version }}
+          Config: ${{ github.event.inputs.config }}
+          Tag: ${{ steps.tag.outputs.tag }}
+
+          Clean build (no cache)
+          EOF
+
+      - name: Create release
+        if: ${{ github.event.inputs.upload_release == 'yes' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}
+        run: |
+          if [ -n "$(ls -A release_files 2>/dev/null)" ]; then
+            gh release create "${{ steps.tag.outputs.tag }}" release_files/* \
+              --repo "${{ env.TARGET_REPO }}" \
+              --title "OPENWRT ${{ steps.tag.outputs.tag }}" \
+              --notes-file notes.md
+          fi
