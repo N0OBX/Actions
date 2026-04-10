@@ -6,10 +6,10 @@ on:
       source_repo:
         description: "Select source repository"
         required: true
-        default: IPQ
+        default: QSDK-25.12.2
         type: choice
         options:
-          - IPQ
+          - QSDK-25.12.2
           - ITR1
           - TU02
           - immortalwrt
@@ -17,9 +17,10 @@ on:
       config:
         description: "Select config file"
         required: true
-        default: FULL-AW1K
+        default: 25122
         type: choice
         options:
+          - 25122
           - NSS-AW1K
           - AW1K
           - 5866T
