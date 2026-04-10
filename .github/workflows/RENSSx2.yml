@@ -1,0 +1,233 @@
+name: IPQ807X-RENSS
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo_url:
+        description: "Git repo URL"
+        required: true
+        default: "https://github.com/N0OBX/QSDK-25.12.2.git"
+        type: string
+
+      config:
+        description: "Select config file"
+        required: true
+        default: 25122
+        type: choice
+        options:
+          - 25122
+          - NSS-AW1K
+          - AW1K
+          - 5866T
+          - FULL-AW1K
+          - FULL-5866T
+
+      version:
+        description: "Version"
+        required: true
+        default: "V1.5.0"
+        type: string
+
+      upload_release:
+        description: "Upload release?"
+        required: true
+        default: "yes"
+        type: choice
+        options:
+          - "yes"
+          - "no"
+
+  workflow_call:
+
+permissions:
+  contents: write
+
+env:
+  SOURCE_DIR: OPENWRT
+  REPO_URL: ${{ github.event.inputs.repo_url }}
+  CONFIG_FILE: CONFIG/${{ github.event.inputs.config }}.config
+  TZ: Asia/Kuala_Lumpur
+  TARGET_REPO: dotywrt/DOTYWRT
+  FIRMWARE_TAG: IPQ807X
+
+jobs:
+  Build:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Check Server Performance
+      run: |
+        echo "Warning ⚠"
+        echo "The allocated server has limited performance. If too many plugins are selected, pay close attention to CPU performance."
+        echo -e "Known CPU models (descending): 7763, 8370C, 8272CL, 8171M, E5-2673 \n"
+        echo "--------------------------CPU Information--------------------------"
+        echo "Number of physical CPUs: $(cat /proc/cpuinfo | grep "physical id" | sort | uniq | wc -l)"
+        echo -e "CPU model information: $(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c) \n"
+        echo "--------------------------Memory Information--------------------------"
+        echo "Installed memory details:"
+        echo -e "$(sudo lshw -short -C memory | grep GiB) \n"
+        echo "--------------------------Disk Information--------------------------"
+        echo "Number of disks: $(ls /dev/sd* | grep -v [1-9] | wc -l)" && df -hT
+
+    - name: Initialize Environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo -E apt-get -y update
+        sudo -E apt-get -y install $(curl -fsSL ophub.org/ubuntu2404-make-openwrt-depends)
+        sudo -E systemctl daemon-reload
+        sudo timedatectl set-timezone "$TZ"
+
+    - name: Checkout Code
+      uses: actions/checkout@main
+
+    - name: Setup Git auth
+      run: |
+        git config --global url."https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+    - name: Clone Source Code
+      run: |
+        df -hT $GITHUB_WORKSPACE
+        sudo mkdir -p /mnt/openwrt
+        sudo chown -R $(id -u):$(id -g) /mnt/openwrt
+        git clone --depth 1 "${{ github.event.inputs.repo_url }}" /mnt/openwrt
+        cd /mnt/openwrt
+        echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
+        VERSION_INFO=$(git show -s --date=short --format="Author: %an<br/>Date: %cd<br/>Message: %s<br/>Hash: %H")
+        echo "VERSION_INFO=$VERSION_INFO" >> $GITHUB_ENV
+        VERSION_KERNEL=$(find target/linux -type f 2>/dev/null | xargs grep -oP 'LINUX_KERNEL_HASH-\K[0-9]+\.[0-9]+\.[0-9]+' 2>/dev/null | head -n 1)
+        echo "VERSION_KERNEL=${VERSION_KERNEL:-unknown}" >> $GITHUB_ENV
+        SOURCE_REPO="$(basename "${{ github.event.inputs.repo_url }}" .git)"
+        echo "SOURCE_REPO=$SOURCE_REPO" >> $GITHUB_ENV
+        echo "HASH=$(git log -1 --pretty=format:'%h')" >> $GITHUB_ENV
+        echo "CACHE_DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
+
+    - name: Generate Variables
+      run: |
+        cp $CONFIG_FILE $OPENWRT_PATH/.config
+        cd $OPENWRT_PATH
+        make defconfig > /dev/null 2>&1
+        DEVICE_TARGET=$(cat .config | grep CONFIG_TARGET_BOARD | awk -F '"' '{print $2}')
+        echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
+        DEVICE_SUBTARGET=$(cat .config | grep CONFIG_TARGET_SUBTARGET | awk -F '"' '{print $2}')
+        echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
+
+    - name: Cache Toolchain
+      uses: actions/cache@main
+      with:
+        key: ${{ env.SOURCE_REPO }}-${{ github.event.inputs.config }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.HASH }}-${{ env.CACHE_DATE }}
+        restore-keys: |
+          ${{ env.SOURCE_REPO }}-${{ github.event.inputs.config }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
+        path: |
+          ${{ env.OPENWRT_PATH }}/.ccache
+          ${{ env.OPENWRT_PATH }}/staging_dir
+
+    - name: Refresh Cache
+      run: |
+        if [ -d "$OPENWRT_PATH/staging_dir" ]; then
+          find "$OPENWRT_PATH/staging_dir" -type d -name "stamp" -not -path "*target*" | while read -r dir; do
+              find "$dir" -type f -exec touch {} +
+          done
+        fi
+
+    - name: Install Feeds
+      run: |
+        cd $OPENWRT_PATH
+        [ -f feeds.conf.default ] && cp feeds.conf.default feeds.conf
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+        sudo rm -f package/feeds/packages/rust
+
+    - name: Download DL Package
+      run: |
+        cp $CONFIG_FILE $OPENWRT_PATH/.config
+        cd $OPENWRT_PATH
+        make defconfig
+        make download -j$(nproc)
+
+    - name: Compile Firmware
+      id: compile
+      run: |
+        cd $OPENWRT_PATH
+        echo -e "$(nproc) thread compile"
+        make -j$(nproc) || make -j1 || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
+        echo "DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
+        echo "FILE_DATE=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
+        TAG="OPENWRT-$(date +'%Y%m%d-%H%M')-${{ github.event.inputs.config }}"
+        echo "TAG=$TAG" >> $GITHUB_ENV
+
+    - name: Check Space Usage
+      if: (!cancelled())
+      run: df -hT
+
+    - name: Organize Files
+      if: steps.compile.outputs.status == 'success'
+      run: |
+        cd $OPENWRT_PATH/bin/targets/*/*
+        cp $OPENWRT_PATH/.config ${{ github.event.inputs.config }}.config
+        [ -f config.buildinfo ] && mv config.buildinfo ${{ github.event.inputs.config }}.config.buildinfo
+        MANIFEST_FILE="$(ls *.manifest 2>/dev/null | head -n 1)"
+        [ -n "$MANIFEST_FILE" ] && mv "$MANIFEST_FILE" ${{ github.event.inputs.config }}.manifest || true
+        mkdir -p packages
+        mv -f $OPENWRT_PATH/bin/packages/*/*/*.apk packages 2>/dev/null || true
+        tar -zcf ${{ github.event.inputs.config }}.Packages.tar.gz packages 2>/dev/null || true
+        rm -rf packages feeds.buildinfo version.buildinfo sha256sums profiles.json
+        echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
+
+    - name: Upload Artifact
+      if: steps.compile.outputs.status == 'success'
+      uses: actions/upload-artifact@v4
+      with:
+        name: OPENWRT-${{ github.event.inputs.config }}-${{ env.TAG }}
+        path: ${{ env.OPENWRT_PATH }}/bin/**
+        retention-days: 7
+
+    - name: Prepare Release Files
+      if: steps.compile.outputs.status == 'success' && github.event.inputs.upload_release == 'yes'
+      run: |
+        mkdir -p release_files
+        cp -f ${{ env.FIRMWARE_PATH }}/* release_files/ 2>/dev/null || true
+
+    - name: Release Notes
+      if: steps.compile.outputs.status == 'success' && github.event.inputs.upload_release == 'yes'
+      run: |
+        cat > notes.md << EOF
+        OpenWrt Build
+
+        Repo: ${{ github.event.inputs.repo_url }}
+        Version: ${{ github.event.inputs.version }}
+        Config: ${{ github.event.inputs.config }}
+        Tag: ${{ env.TAG }}
+
+        Firmware source: ${{ github.event.inputs.repo_url }}
+        Default IP: 192.168.2.1
+        Default password: none
+        Kernel version: ${{ env.VERSION_KERNEL }}
+
+        Last update record of the main source before firmware compilation:
+        ${{ env.VERSION_INFO }}
+        EOF
+
+    - name: Upload Firmware To Release
+      if: steps.compile.outputs.status == 'success' && github.event.inputs.upload_release == 'yes'
+      env:
+        GITHUB_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}
+      run: |
+        if [ -n "$(ls -A release_files 2>/dev/null)" ]; then
+          gh release create "${{ env.TAG }}" release_files/* \
+            --repo "${{ env.TARGET_REPO }}" \
+            --title "OPENWRT ${{ env.TAG }}" \
+            --notes-file notes.md
+        fi
+
+    - name: Delete Old Cache
+      run: |
+        gh cache list --key ${{ env.SOURCE_REPO }}-${{ github.event.inputs.config }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}- --json key --jq '.[] | .key' | while read -r key; do
+          gh cache delete "$key"
+        done
+        echo "========cache status========"
+        echo "ccache: $(du -sh $OPENWRT_PATH/.ccache | cut -f 1)"
+        echo "staging: $(du -sh $OPENWRT_PATH/staging_dir | cut -f 1)"
+      env:
+        GH_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}
