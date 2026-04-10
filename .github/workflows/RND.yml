@@ -117,7 +117,7 @@ jobs:
 
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-
+          sudo rm package/feeds/packages/rust
       # ============================================================
       # CONFIG
       # ============================================================
