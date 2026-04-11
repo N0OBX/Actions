@@ -1,39 +1,38 @@
 name: SYNNS NEW
+
 on:
   workflow_dispatch:
   schedule:
     - cron: "59 15 * * *" # Daily at 11:59 PM MYT
+
+permissions:
+  contents: write
 
 jobs:
   sync_commit:
     runs-on: ubuntu-latest
 
     steps:
-      # 0. Set timezone to Malaysia
       - name: Set timezone to Malaysia
         run: sudo timedatectl set-timezone Asia/Kuala_Lumpur
 
-      # 1. Checkout workspace
       - name: Checkout workspace
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2. Set branch name with date + time (Malaysia timezone)
       - name: Set branch name
         run: |
           DATE=$(date +'%Y-%m-%d-%H%M')
           echo "BRANCH=$DATE" >> $GITHUB_ENV
           echo "Branch will be: $DATE"
 
-      # 3. Clone VKING and checkout commit
       - name: Clone VKING at commit
         run: |
-          git clone https://github.com/N0OBX/VKING.git
+          git clone https://x-access-token:${{ secrets.SOURCE_REPO_TOKEN }}@github.com/N0OBX/VKING.git
           cd VKING
           git checkout 13a0733ad0afd823e06bc17c1a2cecfcd3355224
 
-      # 4. List added/edited files in commit
       - name: List files in commit
         run: |
           cd VKING || exit 1
@@ -44,14 +43,12 @@ jobs:
             echo "NO_CHANGES=true" >> $GITHUB_ENV
           fi
 
-      # 5. Create DOTYCAT folder and copy changed.txt
       - name: Create DOTYCAT folder
         if: env.NO_CHANGES != 'true'
         run: |
           mkdir -p DOTYCAT
           cp changed.txt DOTYCAT/changed.txt
 
-      # 6. Copy changed files to DOTYCAT preserving folder structure
       - name: Copy files to DOTYCAT
         if: env.NO_CHANGES != 'true'
         run: |
@@ -64,13 +61,12 @@ jobs:
             fi
           done < changed.txt
 
-      # 7. Commit & push DOTYCAT folder to target repo
       - name: Commit & Push DOTYCAT
         if: env.NO_CHANGES != 'true'
         run: |
           cd DOTYCAT || exit 1
           git init
-          git checkout -b $BRANCH
+          git checkout -b "$BRANCH"
           git config user.name "github-actions"
           git config user.email "actions@github.com"
 
@@ -82,4 +78,4 @@ jobs:
 
           git commit -m "Personal Tailor (qualcommax)"
           git remote add origin https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/N0OBX/Qcom-nss.git
-          git push -u origin $BRANCH
+          git push -u origin "$BRANCH"
