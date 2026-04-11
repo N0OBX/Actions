@@ -6,7 +6,7 @@ on:
       repo_url:
         description: "Git repo URL"
         required: true
-        default: "https://github.com/N0OBX/QSDK-25.12.2.git"
+        default: "https://github.com/N0OBX/Qsdk25.git"
         type: string
 
       config:
@@ -15,6 +15,7 @@ on:
         default: 25122
         type: choice
         options:
+          - QCA
           - 25122
           - NSS-AW1K
           - AW1K
