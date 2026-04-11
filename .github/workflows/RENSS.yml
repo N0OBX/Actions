@@ -1,4 +1,4 @@
-name: SYNNS
+name: SYNNS NEW
 on:
   workflow_dispatch:
   schedule:
@@ -26,18 +26,18 @@ jobs:
           echo "BRANCH=$DATE" >> $GITHUB_ENV
           echo "Branch will be: $DATE"
 
-      # 3. Clone REIPQ and checkout commit
-      - name: Clone REIPQ at commit
+      # 3. Clone VKING and checkout commit
+      - name: Clone VKING at commit
         run: |
-          git clone https://github.com/dotywrt/REIPQ.git
-          cd REIPQ
-          git checkout 907cfcf044d1ee370d0795c528a711ccc8d294b5
+          git clone https://github.com/N0OBX/VKING.git
+          cd VKING
+          git checkout 13a0733ad0afd823e06bc17c1a2cecfcd3355224
 
       # 4. List added/edited files in commit
       - name: List files in commit
         run: |
-          cd REIPQ || exit 1
-          git diff-tree --no-commit-id --name-only -r 39763a303f56dc80ce0640641e3f1093bc1ea44b > ../changed.txt
+          cd VKING || exit 1
+          git diff-tree --no-commit-id --name-only -r 13a0733ad0afd823e06bc17c1a2cecfcd3355224 > ../changed.txt
           echo "Files in commit:"
           cat ../changed.txt || true
           if [[ ! -s ../changed.txt ]]; then
@@ -56,9 +56,9 @@ jobs:
         if: env.NO_CHANGES != 'true'
         run: |
           while read file; do
-            if [ -f "REIPQ/$file" ]; then
+            if [ -f "VKING/$file" ]; then
               mkdir -p "DOTYCAT/$(dirname "$file")"
-              cp -f "REIPQ/$file" "DOTYCAT/$file"
+              cp -f "VKING/$file" "DOTYCAT/$file"
             else
               echo "Skipping missing file: $file"
             fi
